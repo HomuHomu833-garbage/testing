@@ -27,7 +27,7 @@ power_state: { mode: reboot, condition: true }
 UD
 printf 'instance-id: x32\nlocal-hostname: x32\n' > meta-data
 cloud-localds seed.iso user-data meta-data
-qemu-system-x86_64 -enable-kvm -cpu host -smp "$(nproc)" -m 12G -nographic -serial file:console.log \
+qemu-system-x86_64 -enable-kvm -cpu host -smp "$(nproc)" -m 12G -display none -serial file:console.log \
   -drive file=disk.qcow2,if=virtio -drive file=seed.iso,if=virtio,format=raw \
   -netdev user,id=n,hostfwd=tcp::2222-:22 -device virtio-net,netdev=n -daemonize -pidfile qemu.pid
 S=(ssh -i key -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o LogLevel=ERROR t@localhost)

@@ -12,7 +12,11 @@ case "$(uname -s)" in
            fi
            # foreign FreeBSD builds (arm) run through qemu's bsd-user emulator via binmiscctl
            case "${T:-}" in arm-*|armv7-*)
-             sudo pkg install -y qemu-user-static && sudo service qemu_user_static onestart ;;
+             sudo pkg install -y qemu-user-static && sudo service qemu_user_static onestart
+             # the emulator loads the arm program's ld-elf.so.1 and libs from its prefix: an armv7 base system
+             r=$(freebsd-version -u | sed 's/-p[0-9]*$//')
+             sudo mkdir -p /usr/gnemul/qemu-arm
+             curl -fsSL "https://download.freebsd.org/releases/arm/armv7/$r/base.txz" | sudo tar -xpf - -C /usr/gnemul/qemu-arm ;;
            esac ;;
   NetBSD)  sudo pkgin -y install bash curl python311 unzip coreutils gtar xz || sudo pkgin -y install bash curl python312 unzip coreutils gtar xz
            # 32-bit compat for x86 builds: kernel module and the base32 set
