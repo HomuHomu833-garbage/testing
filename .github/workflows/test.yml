@@ -259,7 +259,7 @@ jobs:
     name: ${{ matrix.h.os }} (${{ matrix.h.triple }})
     steps:
       - uses: actions/checkout@v4
-      - name: Test in a ${{ matrix.h.os }} ${{ matrix.h.vmarch }} VM
+      - name: Start a ${{ matrix.h.os }} ${{ matrix.h.vmarch }} VM
         uses: cross-platform-actions/action@v1.7.0
         env:
           REPO: ${{ inputs.source }}
@@ -274,11 +274,13 @@ jobs:
           memory: 8G
           cpu_count: 4
           environment_variables: REPO REL T HOST_OS PRUNE_ARCHIVES
-          run: |
-            sh ./scripts/bsd-setup.sh
-            export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
-            bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
-            cp "$HOME"/w/results-*.txt ./bsd-results.txt 2>/dev/null || true
+      - name: Test in the VM
+        shell: cpa.sh {0}
+        run: |
+          sh ./scripts/bsd-setup.sh
+          export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
+          bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
+          cp "$HOME"/w/results-*.txt ./bsd-results.txt 2>/dev/null || true
       - name: Report
         if: always()
         run: |

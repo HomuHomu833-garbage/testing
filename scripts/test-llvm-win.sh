@@ -429,6 +429,7 @@ overlay() {
   cp -al "$ndk/toolchains/llvm/prebuilt/windows-x86_64" "$out/toolchains/llvm/prebuilt/" 2>/dev/null \
     || cp -a "$ndk/toolchains/llvm/prebuilt/windows-x86_64" "$out/toolchains/llvm/prebuilt/"
   tc="$out/toolchains/llvm/prebuilt/windows-x86_64"
+  [[ -d $tc/sysroot ]] || info "official toolchain incomplete: $(ls "$tc" 2>&1 | tr '\n' ' '); base: $(ls "$ndk/toolchains/llvm/prebuilt/windows-x86_64" 2>&1 | tr '\n' ' ')"
   [[ $OFFICIAL == 1 ]] && return 0
   rm -rf "$tc/bin"; cp -a "$ours/bin" "$tc/bin"
   # Same as make-ndk.sh: our clang uses its own resource dir (lib/clang/<ours>, e.g. 8.0.0 where
