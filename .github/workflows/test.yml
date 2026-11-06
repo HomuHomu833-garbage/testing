@@ -96,9 +96,16 @@ jobs:
           for p in libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
                    libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
                    libc6-mips64-cross libc6-mips64el-cross; do sudo apt-get install -yq "$p" >/dev/null 2>&1 || echo "no $p"; done
+          # Ubuntu's qemu 8.2 gets AT_PHDR wrong when the first PT_LOAD is not the one holding
+          # the headers (zig's sparc64 linker does that): use Debian trixie's static qemu 10.
+          v=$(curl -fsSL --retry 5 -o /tmp/pk.xz https://deb.debian.org/debian/dists/trixie/main/binary-amd64/Packages.xz \
+              && xz -dc /tmp/pk.xz | awk '/^Package: qemu-user$/{p=1} p&&/^Filename:/{print $2; exit}')
+          curl -fsSL --retry 5 -o /tmp/qu.deb "https://deb.debian.org/debian/$v" && dpkg-deb -x /tmp/qu.deb /tmp/qu \
+            && sudo cp -f /tmp/qu/usr/bin/qemu-* /usr/bin/ && qemu-sparc64 --version | head -1
           mountpoint -q /proc/sys/fs/binfmt_misc || sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
           for f in /usr/lib/binfmt.d/qemu-*.conf; do
-            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] || sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register" || true
+            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] && echo -1 | sudo tee "/proc/sys/fs/binfmt_misc/$n" >/dev/null
+            sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register" || true
           done
           if [ -x /usr/bin/qemu-aarch64_be ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64_be ]; then
             printf '%s' ':qemu-aarch64_be:M::\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff:/usr/bin/qemu-aarch64_be:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
