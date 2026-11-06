@@ -9,7 +9,11 @@ case "$(uname -s)" in
            if [ ! -e /usr/lib32/libm.so.5 ]; then
              r=$(freebsd-version -u | sed 's/-p[0-9]*$//')
              curl -fsSL "https://download.freebsd.org/releases/amd64/$r/lib32.txz" | sudo tar -xpf - -C /
-           fi ;;
+           fi
+           # foreign FreeBSD builds (arm) run through qemu's bsd-user emulator via binmiscctl
+           case "${T:-}" in arm-*|armv7-*)
+             sudo pkg install -y qemu-user-static && sudo service qemu_user_static onestart ;;
+           esac ;;
   NetBSD)  sudo pkgin -y install bash curl python311 unzip coreutils gtar xz || sudo pkgin -y install bash curl python312 unzip coreutils gtar xz
            # 32-bit compat for x86 builds: kernel module and the base32 set
            if [ "$(uname -m)" = amd64 ]; then

@@ -61,7 +61,8 @@ jobs:
           bsd=$(pick '-(freebsd|netbsd|openbsd)-' | jq -cnR '[inputs | select(length>0)
                  | (split("-")) as $p | {triple: ., os: $p[1],
                     vmarch: (if $p[0]=="aarch64" then "arm64" elif ($p[0]=="x86_64" or $p[0]=="x86") then "x86-64"
-                            elif ($p[0]=="riscv64" and $p[1]=="freebsd") then "riscv64" else "" end)}
+                            elif ($p[0]=="riscv64" and $p[1]=="freebsd") then "riscv64"
+                            elif ($p[0]=="arm" and $p[1]=="freebsd") then "x86-64" else "" end)}
                  | select(.vmarch != "") | select((.os=="openbsd" and (.triple|startswith("x86-"))) | not)]')
           { echo "linux=$lin"; echo "wine=$wine"; echo "winarm=$winarm"; echo "darwin=$darwin"; echo "bsd=$bsd"; echo "x32=$x32"; } >> "$GITHUB_OUTPUT"
           {
