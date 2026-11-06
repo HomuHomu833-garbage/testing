@@ -1,0 +1,157 @@
+name: Test LLVM
+run-name: Test ${{ inputs.release }} from ${{ inputs.source }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "NDK release (r20-beta1, r21e, r24, ...)"
+        required: true
+        type: string
+      source:
+        description: "Repo with the llvm-r<major> release"
+        required: true
+        default: HomuHomu833/llvm-custom
+        type: string
+      filter:
+        description: "Only host triples matching this regex (empty = all)"
+        required: false
+        type: string
+      exclude:
+        description: "Skip host triples matching this regex"
+        required: false
+        default: "abin32|openbsd"
+        type: string
+      linux:
+        description: "Test Linux hosts"
+        type: boolean
+        default: true
+      windows:
+        description: "Test Windows hosts under Wine"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      linux: ${{ steps.list.outputs.linux }}
+      windows: ${{ steps.list.outputs.windows }}
+    steps:
+      - id: list
+        env:
+          REL: ${{ inputs.release }}
+          SRC: ${{ inputs.source }}
+          FILTER: ${{ inputs.filter }}
+          EXCLUDE: ${{ inputs.exclude }}
+        run: |
+          tag="llvm-${REL%%[!r0-9]*}"
+          html=$(curl -fsSL "https://github.com/$SRC/releases/expanded_assets/$tag")
+          triples=$(grep -oE "releases/download/$tag/[A-Za-z0-9_.+%-]+-$REL-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
+            | sed -E "s#.*-$REL-##; s#\.tar\.xz\$##" | grep -vE '^(beta|rc)[0-9]+-' | sort -u \
+            | grep -E -- "${FILTER:-.}" | { if [ -n "$EXCLUDE" ]; then grep -vE -- "$EXCLUDE"; else cat; fi; } || true)
+          lin=$(grep -E -- '-linux-' <<<"$triples" | grep -v -- '-linux-android' | grep -vE 'x32$' || true)
+          win=$(grep -E -- '^(x86_64|i686)-w64-mingw32$' <<<"$triples" | sed 's/-w64-mingw32//' || true)
+          j() { jq -cnR '[inputs | select(length>0)]'; }
+          echo "linux=$(j <<<"$lin")" >> "$GITHUB_OUTPUT"
+          echo "windows=$(j <<<"$win")" >> "$GITHUB_OUTPUT"
+          echo "Linux: $(wc -w <<<"$lin")  Windows: $(wc -w <<<"$win")" >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
+    needs: plan
+    if: inputs.linux && needs.plan.outputs.linux != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        triple: ${{ fromJSON(needs.plan.outputs.linux) }}
+    name: linux (${{ matrix.triple }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qemu and cross libcs
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils unzip python3 \
+            libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
+            libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
+            libc6-mips64-cross libc6-mips64el-cross || true
+      - name: Test
+        env:
+          REPO: ${{ inputs.source }}
+          REL: ${{ inputs.release }}
+          T: ${{ matrix.triple }}
+          WORK: ${{ runner.temp }}/w
+          PRUNE_ARCHIVES: "1"
+        run: ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar"
+      - name: Report
+        if: always()
+        run: |
+          f=$(ls "$RUNNER_TEMP"/w/results-*.txt 2>/dev/null | head -1)
+          [ -n "$f" ] && cp "$f" "results-linux-${{ matrix.triple }}.txt" || echo "no results" > "results-linux-${{ matrix.triple }}.txt"
+          { echo "### ${{ matrix.triple }}"; echo "OK=$(grep -c '^OK' results-*.txt) FAIL=$(grep -c '^FAIL' results-*.txt) SKIP=$(grep -c '^SKIP' results-*.txt)"; echo '```'; grep -E '^(FAIL|SKIP)' results-*.txt | cut -c1-300; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-linux-${{ matrix.triple }}
+          path: results-linux-${{ matrix.triple }}.txt
+
+  windows:
+    needs: plan
+    if: inputs.windows && needs.plan.outputs.windows != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.windows) }}
+    name: windows (${{ matrix.arch }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install wine and qemu
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -q
+          sudo apt-get install -yq wine wine64 wine32:i386 qemu-user xz-utils unzip python3
+          WINEDEBUG=-all wineboot -i || true
+      - name: Test
+        env:
+          REPO: ${{ inputs.source }}
+          REL: ${{ inputs.release }}
+          WIN_ARCHES: ${{ matrix.arch }}
+          WORK: ${{ runner.temp }}/w
+          WINEDEBUG: "-all"
+          PRUNE_ARCHIVES: "1"
+        run: ./scripts/test-llvm-win.sh "$REL"
+      - name: Report
+        if: always()
+        run: |
+          f=$(ls "$RUNNER_TEMP"/w/results-*.txt 2>/dev/null | head -1)
+          [ -n "$f" ] && cp "$f" "results-windows-${{ matrix.arch }}.txt" || echo "no results" > "results-windows-${{ matrix.arch }}.txt"
+          { echo "### windows ${{ matrix.arch }}"; echo "OK=$(grep -c '^OK' results-*.txt) FAIL=$(grep -c '^FAIL' results-*.txt) SKIP=$(grep -c '^SKIP' results-*.txt)"; echo '```'; grep -E '^(FAIL|SKIP)' results-*.txt | cut -c1-300; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-windows-${{ matrix.arch }}
+          path: results-windows-${{ matrix.arch }}.txt
+
+  summary:
+    needs: [linux, windows]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: r
+          merge-multiple: true
+      - name: Summary
+        run: |
+          {
+            echo "## ${{ inputs.release }} (${{ inputs.source }})"
+            echo "| host | OK | FAIL | SKIP |"; echo "|---|---|---|---|"
+            for f in r/results-*.txt; do n=${f#r/results-}; n=${n%.txt}
+              echo "| $n | $(grep -c '^OK' "$f") | $(grep -c '^FAIL' "$f") | $(grep -c '^SKIP' "$f") |"; done
+            echo; echo "### Failures"; echo '```'; grep -hE '^FAIL' r/*.txt | cut -c1-300; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          ! grep -qhE '^FAIL' r/*.txt
