@@ -27,11 +27,13 @@
 #               as dis link profdata cov, clang-format, clang-tidy, clang-scan-deps, ld.lld
 #   all ELFs    smoke test (--help) + hardening check (WARN only)
 # Tools a release does not ship are INFO and skipped; API levels are capped at the sysroot's highest.
-# Skipped on purpose: *-linux-android hosts (need Android/Termux), Windows/macOS/BSD hosts, x32.
+# Android hosts are static and run on Linux. HOST_OS=darwin|freebsd|netbsd|openbsd tests those
+# builds natively on such a machine (no qemu there: produced Android programs are not run).
 
 set -uo pipefail
 
 REPO="${REPO:-HomuHomu833/llvm-custom}"
+HOST_OS="${HOST_OS:-linux}"   # linux (incl. android), darwin, freebsd, netbsd, openbsd: the host builds to test
 VER="${1:-}"
 [[ -n $VER ]] || { sed -n '2,30p' "$0"; exit 2; }
 FILTER="${2:-}"
@@ -49,7 +51,7 @@ RESULTS="$WORK/results-$VER${FILTER:+-${FILTER//[^A-Za-z0-9_-]/_}}.txt"; : > "$R
 declare -A QEMU=(
   [x86_64]=native   [x86]=i386
   [arm]=arm         [thumb]=arm        [armeb]=armeb     [thumbeb]=armeb
-  [aarch64]=aarch64 [aarch64_be]=aarch64_be
+  [aarch64]=aarch64 [aarch64_be]=aarch64_be [armv7a]=arm [i686]=i386
   [riscv32]=riscv32 [riscv64]=riscv64
   [powerpc]=ppc     [powerpc64]=ppc64  [powerpc64le]=ppc64le
   [mips]=mips       [mipsel]=mipsel    [mips64]=mips64   [mips64el]=mips64el
@@ -80,6 +82,7 @@ ok=0; fail=0; warn=0; skip=0; CUR=""
 RUNNER=()   # how to run the NDK's own (host) binaries
 TR=()       # how to run the produced Android test binaries
 
+command -v timeout >/dev/null || { command -v gtimeout >/dev/null && timeout() { gtimeout "$@"; }; }
 log()  { echo "$1" | tee -a "$RESULTS"; }
 pass() { log "OK    [$CUR] $1"; ((ok++)); return 0; }
 bad()  { log "FAIL  [$CUR] $1 :: $(tr '\n' ' ' <<<"${2:-}" | cut -c1-220)"; ((fail++)); return 0; }
@@ -183,6 +186,7 @@ declare -A T_INTERP=([aarch64]=linker64 [armv7a]=linker [i686]=linker [x86_64]=l
 # sets TR (runner for produced binaries) and returns 1 if the target cannot be run here
 target_runner() {
   local a=$1; TR=()
+  [[ $HOST_OS == linux ]] || return 1   # Android programs only run on a Linux kernel
   case $a in
     x86_64) [[ "$(uname -m)" == x86_64 ]] && return 0; TR=(qemu-x86_64) ;;
     i686)   if command -v qemu-i386 >/dev/null; then TR=(qemu-i386); else return 0; fi ;;
@@ -280,7 +284,7 @@ test_ndk() {
       if step "clang -g -shared (strip input)" run "$CLANG" $TA -g -shared -fPIC lib.c -o hs.so; then
         cp hs.so hs.stripped.so
         step   "llvm-strip"               run "$(l llvm-strip)" hs.stripped.so
-        step   "llvm-strip shrinks file"  test "$(stat -c %s hs.stripped.so)" -lt "$(stat -c %s hs.so)"
+        step   "llvm-strip shrinks file"  test "$(wc -c <hs.stripped.so)" -lt "$(wc -c <hs.so)"
       fi
     fi
     have llvm-objcopy && step "llvm-objcopy --strip-debug" run "$(l llvm-objcopy)" --strip-debug h.o h2.o
@@ -401,7 +405,8 @@ test_ndk() {
     real=$(readlink -f "$f"); [[ -n ${seen[$real]:-} ]] && continue; seen[$real]=1
     [[ $base == gdb-orig ]] && continue   # only runs through the gdb wrapper, which sets its library path
     [[ "$base" == *.so || "$base" == *.so.* || "$base" == *.a || "$base" == *.o ]] && continue
-    [[ "$(head -c4 "$f" 2>/dev/null | tail -c3)" == "ELF" ]] || continue
+    local mg; mg=$(head -c4 "$f" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    case $mg in 7f454c46) ;; cffaedfe|cefaedfe|cafebabe) ;; *) continue ;; esac
     if [[ "$COVERED" != *" $base "* && ! $base =~ ^clang-[0-9]+$ ]]; then
       out=$(run "$f" --help </dev/null 2>&1); rc=$?
       if [[ -n ${NDK_LOCAL:-} && $rc -eq 127 ]] && grep -q 'error while loading shared libraries' <<<"$out"; then
@@ -409,7 +414,7 @@ test_ndk() {
       elif [[ $rc -eq 126 || $rc -eq 127 || $rc -ge 128 ]]; then bad "smoke ${f#$NDK/} (rc=$rc)" "$out"
       else pass "smoke ${f#$NDK/} (rc=$rc)"; fi
     fi
-    check_hardening "$f" "${f#$NDK/}"
+    [[ $mg == 7f454c46 ]] && check_hardening "$f" "${f#$NDK/}"
   done < <(find "$NDK"/toolchains/llvm/prebuilt/*/bin -type f -print0 2>/dev/null)   # only our bin/: the rest is Google's x86_64 build
 }
 
@@ -481,23 +486,25 @@ if [[ $OFFICIAL == 1 ]]; then
   summary; exit $?
 fi
 
-echo "==> Looking up Linux LLVM assets for $REPO @ $TAG (release $VER)"
+case $HOST_OS in linux) HOST_PAT='-linux-' ;; darwin) HOST_PAT='-apple-darwin' ;; *) HOST_PAT="-$HOST_OS-" ;; esac
+echo "==> Looking up $HOST_OS LLVM assets for $REPO @ $TAG (release $VER)"
 html=$(curl -fsSL "https://github.com/$REPO/releases/expanded_assets/$TAG") || { echo "release $TAG not found"; exit 1; }
 mapfile -t URLS < <(grep -oE "releases/download/$TAG/[A-Za-z0-9_.+%-]+-$VER-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
-  | grep -vE -- "-$VER-(beta|rc)[0-9]+-" | grep -E -- '-linux-' | grep -v -- '-linux-android' | grep -- "$FILTER" | grep -vE -- "${EXCLUDE:-^$}" \
+  | grep -vE -- "-$VER-(beta|rc)[0-9]+-" | grep -E -- "$HOST_PAT" | grep -- "$FILTER" | grep -vE -- "${EXCLUDE:-^$}" \
   | sort -u | sed "s#^#https://github.com/$REPO/#")
 [[ ${#URLS[@]} -gt 0 ]] || { echo "No matching Linux assets found."; exit 1; }
 echo "    ${#URLS[@]} asset(s) selected"
 
 for url in "${URLS[@]}"; do
   file="${url##*/}"; file="${file//%2B/+}"; name="${file%.tar.xz}"; triple="${name##*-$VER-}"
-  arch="${triple%%-linux-*}"; abi="${triple##*-linux-}"; CUR="$VER-$triple"
+  arch="${triple%%-*}"; abi="${triple##*-linux-}"; [[ $triple == *-linux-* ]] || abi=""; CUR="$VER-$triple"
   dir="$WORK/x/$CUR"
   echo; echo "=================== $CUR ==================="
 
-  qsuf="${QEMU[$arch]:-}"
+  qsuf="${QEMU[$arch]:-}"; [[ $HOST_OS == linux ]] || qsuf=native
+  [[ $arch == "$(uname -m)" && $abi != *_be* ]] && qsuf=native   # e.g. aarch64 builds on an aarch64 machine
   [[ -n $qsuf ]] || { log "SKIP  [$CUR] no qemu mapping for arch '$arch'"; ((skip++)); continue; }
-  case $abi in *x32) log "SKIP  [$CUR] x32 ABI is not supported by qemu-user"; ((skip++)); continue ;; esac
+  case $abi in *x32) qsuf=native ;; esac   # x32 runs on an x86_64 kernel built with x32 support
   [[ $abi == *abin32 ]] && case $arch in mips64) qsuf=mipsn32 ;; mips64el) qsuf=mipsn32el ;; esac
 
   RUNNER=()
@@ -530,6 +537,16 @@ for url in "${URLS[@]}"; do
         ((skip++)); [[ $KEEP_EXTRACTED == 1 ]] || rm -rf "$dir"; continue
       fi
       RUNNER+=(-L "$sr")
+    fi
+  fi
+
+  # a host that cannot execute this build at all (other CPU, no x32 kernel support, arm64e) is SKIP
+  if [[ $qsuf == native && ( $HOST_OS != linux || $abi == *x32 ) ]]; then
+    probe=$(find "$dir" -type f -name 'llvm-cxxfilt' 2>/dev/null | head -n1)
+    pout=$(timeout "$TIMEOUT" "$probe" _Z3foov 2>&1); prc=$?
+    if [[ $prc -eq 126 || $prc -eq 127 ]] || grep -qiE 'exec format|cannot execute|bad cpu type|not supported' <<<"$pout"; then
+      log "SKIP  [$CUR] this $(uname -sm) machine cannot execute it (rc=$prc): $(tr '\n' ' ' <<<"$pout" | cut -c1-120)"; ((skip++))
+      [[ $KEEP_EXTRACTED == 1 ]] || rm -rf "$dir"; [[ $PRUNE_ARCHIVES == 1 ]] && rm -f "$WORK/dl/$file"; continue
     fi
   fi
 

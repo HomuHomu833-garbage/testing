@@ -20,16 +20,7 @@ on:
       exclude:
         description: "Skip host triples matching this regex"
         required: false
-        default: "abin32|openbsd"
         type: string
-      linux:
-        description: "Test Linux hosts"
-        type: boolean
-        default: true
-      windows:
-        description: "Test Windows hosts under Wine"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -39,7 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       linux: ${{ steps.list.outputs.linux }}
-      windows: ${{ steps.list.outputs.windows }}
+      wine: ${{ steps.list.outputs.wine }}
+      winarm: ${{ steps.list.outputs.winarm }}
+      darwin: ${{ steps.list.outputs.darwin }}
+      bsd: ${{ steps.list.outputs.bsd }}
     steps:
       - id: list
         env:
@@ -50,37 +44,53 @@ jobs:
         run: |
           tag="llvm-${REL%%[!r0-9]*}"
           html=$(curl -fsSL "https://github.com/$SRC/releases/expanded_assets/$tag")
-          triples=$(grep -oE "releases/download/$tag/[A-Za-z0-9_.+%-]+-$REL-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
+          all=$(grep -oE "releases/download/$tag/[A-Za-z0-9_.+%-]+-$REL-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
             | sed -E "s#.*-$REL-##; s#\.tar\.xz\$##" | grep -vE '^(beta|rc)[0-9]+-' | sort -u \
             | grep -E -- "${FILTER:-.}" | { if [ -n "$EXCLUDE" ]; then grep -vE -- "$EXCLUDE"; else cat; fi; } || true)
-          lin=$(grep -E -- '-linux-' <<<"$triples" | grep -v -- '-linux-android' | grep -vE 'x32$' || true)
-          win=$(grep -E -- '^(x86_64|i686)-w64-mingw32$' <<<"$triples" | sed 's/-w64-mingw32//' || true)
+          pick() { grep -E -- "$1" <<<"$all" || true; }
           j() { jq -cnR '[inputs | select(length>0)]'; }
-          echo "linux=$(j <<<"$lin")" >> "$GITHUB_OUTPUT"
-          echo "windows=$(j <<<"$win")" >> "$GITHUB_OUTPUT"
-          echo "Linux: $(wc -w <<<"$lin")  Windows: $(wc -w <<<"$win")" >> "$GITHUB_STEP_SUMMARY"
+          # Linux and Android hosts: aarch64 on arm runners (native), the rest on x86_64 (native or qemu)
+          lin=$(pick '-linux-' | jq -cnR '[inputs | select(length>0) | {triple: ., runner: (if test("^aarch64-") then "ubuntu-24.04-arm" else "ubuntu-24.04" end)}]')
+          wine=$(pick '^(x86_64|i686)-w64-mingw32$' | sed 's/-w64-mingw32//' | j)
+          winarm=$(pick '^(aarch64|arm64ec)-w64-mingw32$' | sed 's/-w64-mingw32//' | j)
+          darwin=$(pick '-apple-darwin$' | jq -cnR '[inputs | select(length>0) | {triple: ., runner: (if test("^x86_64") then "macos-15-intel" else "macos-15" end)}]')
+          # BSD VMs exist for x86-64 and arm64; x86 builds run on the x86-64 VM (32-bit compat, not on OpenBSD)
+          bsd=$(pick '-(freebsd|netbsd|openbsd)-' | jq -cnR '[inputs | select(length>0)
+                 | (split("-")) as $p | {triple: ., os: $p[1],
+                    vmarch: (if $p[0]=="aarch64" then "arm64" elif ($p[0]=="x86_64" or $p[0]=="x86") then "x86-64" else "" end)}
+                 | select(.vmarch != "") | select((.os=="openbsd" and (.triple|startswith("x86-"))) | not)]')
+          { echo "linux=$lin"; echo "wine=$wine"; echo "winarm=$winarm"; echo "darwin=$darwin"; echo "bsd=$bsd"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Hosts"
+            echo "Linux/Android: $(jq length <<<"$lin"), Windows (Wine): $(jq length <<<"$wine"), Windows arm64: $(jq length <<<"$winarm"), macOS: $(jq length <<<"$darwin"), BSD: $(jq length <<<"$bsd")"
+            echo; echo "No runner can execute these builds (not tested):"
+            echo '```'
+            comm -23 <(sort <<<"$all") <({ jq -r '.[].triple' <<<"$lin"; jq -r '.[]+"-w64-mingw32"' <<<"$wine"; jq -r '.[]+"-w64-mingw32"' <<<"$winarm"; jq -r '.[].triple' <<<"$darwin"; jq -r '.[].triple' <<<"$bsd"; } | sort)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   linux:
     needs: plan
-    if: inputs.linux && needs.plan.outputs.linux != '[]'
-    runs-on: ubuntu-24.04
+    if: needs.plan.outputs.linux != '[]'
+    runs-on: ${{ matrix.h.runner }}
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        triple: ${{ fromJSON(needs.plan.outputs.linux) }}
-    name: linux (${{ matrix.triple }})
+        h: ${{ fromJSON(needs.plan.outputs.linux) }}
+    name: linux (${{ matrix.h.triple }})
     steps:
       - uses: actions/checkout@v4
       - name: Install qemu and cross libcs
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils unzip python3 \
-            libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
-            libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
-            libc6-mips64-cross libc6-mips64el-cross
+          sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils unzip python3
+          for p in libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
+                   libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
+                   libc6-mips64-cross libc6-mips64el-cross; do sudo apt-get install -yq "$p" >/dev/null 2>&1 || echo "no $p"; done
           mountpoint -q /proc/sys/fs/binfmt_misc || sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
           for f in /usr/lib/binfmt.d/qemu-*.conf; do
-            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] || sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register"
+            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] || sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register" || true
           done
           if [ -x /usr/bin/qemu-aarch64_be ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64_be ]; then
             printf '%s' ':qemu-aarch64_be:M::\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff:/usr/bin/qemu-aarch64_be:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
@@ -90,31 +100,29 @@ jobs:
         env:
           REPO: ${{ inputs.source }}
           REL: ${{ inputs.release }}
-          T: ${{ matrix.triple }}
+          T: ${{ matrix.h.triple }}
           WORK: ${{ runner.temp }}/w
           PRUNE_ARCHIVES: "1"
         run: ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar"
       - name: Report
         if: always()
-        run: |
-          f=$(ls "$RUNNER_TEMP"/w/results-*.txt 2>/dev/null | head -1)
-          [ -n "$f" ] && cp "$f" "results-linux-${{ matrix.triple }}.txt" || echo "no results" > "results-linux-${{ matrix.triple }}.txt"
-          { echo "### ${{ matrix.triple }}"; echo "OK=$(grep -c '^OK' results-*.txt) FAIL=$(grep -c '^FAIL' results-*.txt) SKIP=$(grep -c '^SKIP' results-*.txt)"; echo '```'; grep -E '^(FAIL|SKIP)' results-*.txt | cut -c1-300; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        run: ./scripts/report.sh "${{ matrix.h.triple }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-linux-${{ matrix.triple }}
-          path: results-linux-${{ matrix.triple }}.txt
+          name: results-${{ matrix.h.triple }}
+          path: results-${{ matrix.h.triple }}.txt
 
-  windows:
+  wine:
     needs: plan
-    if: inputs.windows && needs.plan.outputs.windows != '[]'
+    if: needs.plan.outputs.wine != '[]'
     runs-on: ubuntu-24.04
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ fromJSON(needs.plan.outputs.windows) }}
-    name: windows (${{ matrix.arch }})
+        arch: ${{ fromJSON(needs.plan.outputs.wine) }}
+    name: windows-wine (${{ matrix.arch }})
     steps:
       - uses: actions/checkout@v4
       - name: Install wine and qemu
@@ -122,30 +130,146 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update -q
           sudo apt-get install -yq wine wine64 wine32:i386 qemu-user xz-utils unzip python3
-          WINEDEBUG=-all wineboot -i || true
       - name: Test
         env:
           REPO: ${{ inputs.source }}
           REL: ${{ inputs.release }}
           WIN_ARCHES: ${{ matrix.arch }}
           WORK: ${{ runner.temp }}/w
-          WINEDEBUG: "-all"
           PRUNE_ARCHIVES: "1"
         run: ./scripts/test-llvm-win.sh "$REL"
       - name: Report
         if: always()
-        run: |
-          f=$(ls "$RUNNER_TEMP"/w/results-*.txt 2>/dev/null | head -1)
-          [ -n "$f" ] && cp "$f" "results-windows-${{ matrix.arch }}.txt" || echo "no results" > "results-windows-${{ matrix.arch }}.txt"
-          { echo "### windows ${{ matrix.arch }}"; echo "OK=$(grep -c '^OK' results-*.txt) FAIL=$(grep -c '^FAIL' results-*.txt) SKIP=$(grep -c '^SKIP' results-*.txt)"; echo '```'; grep -E '^(FAIL|SKIP)' results-*.txt | cut -c1-300; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+        run: ./scripts/report.sh "${{ matrix.arch }}-w64-mingw32"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: results-windows-${{ matrix.arch }}
-          path: results-windows-${{ matrix.arch }}.txt
+          name: results-${{ matrix.arch }}-w64-mingw32
+          path: results-${{ matrix.arch }}-w64-mingw32.txt
+
+  winarm:
+    needs: plan
+    if: needs.plan.outputs.winarm != '[]'
+    runs-on: windows-11-arm
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.winarm) }}
+    name: windows-arm64 (${{ matrix.arch }})
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          mkdir -p "$HOME/bin"
+          if ! command -v python3 >/dev/null; then
+            p=$(command -v python || command -v py)
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$p" > "$HOME/bin/python3"; chmod +x "$HOME/bin/python3"
+          fi
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          for t in curl tar xz unzip timeout cygpath; do command -v $t || echo "missing $t"; done
+      - name: Test
+        env:
+          REPO: ${{ inputs.source }}
+          REL: ${{ inputs.release }}
+          WIN_ARCHES: ${{ matrix.arch }}
+          WORK: ${{ runner.temp }}/w
+          WINE: ""
+          PRUNE_ARCHIVES: "1"
+        run: ./scripts/test-llvm-win.sh "$REL"
+      - name: Report
+        if: always()
+        run: ./scripts/report.sh "${{ matrix.arch }}-w64-mingw32"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.arch }}-w64-mingw32
+          path: results-${{ matrix.arch }}-w64-mingw32.txt
+
+  darwin:
+    needs: plan
+    if: needs.plan.outputs.darwin != '[]'
+    runs-on: ${{ matrix.h.runner }}
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        h: ${{ fromJSON(needs.plan.outputs.darwin) }}
+    name: macos (${{ matrix.h.triple }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: brew install bash coreutils
+      - name: Test
+        env:
+          REPO: ${{ inputs.source }}
+          REL: ${{ inputs.release }}
+          T: ${{ matrix.h.triple }}
+          WORK: ${{ runner.temp }}/w
+          HOST_OS: darwin
+          PRUNE_ARCHIVES: "1"
+        run: |
+          "$(brew --prefix)/bin/bash" ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar"
+      - name: Report
+        if: always()
+        run: |
+          "$(brew --prefix)/bin/bash" ./scripts/report.sh "${{ matrix.h.triple }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.h.triple }}
+          path: results-${{ matrix.h.triple }}.txt
+
+  bsd:
+    needs: plan
+    if: needs.plan.outputs.bsd != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        h: ${{ fromJSON(needs.plan.outputs.bsd) }}
+    name: ${{ matrix.h.os }} (${{ matrix.h.triple }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test in a ${{ matrix.h.os }} ${{ matrix.h.vmarch }} VM
+        uses: cross-platform-actions/action@v0.27.0
+        env:
+          REPO: ${{ inputs.source }}
+          REL: ${{ inputs.release }}
+          T: ${{ matrix.h.triple }}
+          HOST_OS: ${{ matrix.h.os }}
+          PRUNE_ARCHIVES: "1"
+        with:
+          operating_system: ${{ matrix.h.os }}
+          architecture: ${{ matrix.h.vmarch }}
+          version: ${{ matrix.h.os == 'freebsd' && '14.2' || matrix.h.os == 'netbsd' && '10.1' || '7.6' }}
+          memory: 8G
+          cpu_count: 4
+          environment_variables: REPO REL T HOST_OS PRUNE_ARCHIVES
+          shutdown_vm: true
+          run: |
+            sh ./scripts/bsd-setup.sh
+            export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
+            bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
+            cp "$HOME"/w/results-*.txt ./bsd-results.txt 2>/dev/null || true
+      - name: Report
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/w"
+          [ -f bsd-results.txt ] && cp bsd-results.txt "$RUNNER_TEMP/w/results-bsd.txt"
+          ./scripts/report.sh "${{ matrix.h.triple }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.h.triple }}
+          path: results-${{ matrix.h.triple }}.txt
 
   summary:
-    needs: [linux, windows]
+    needs: [linux, wine, winarm, darwin, bsd]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -161,5 +285,6 @@ jobs:
             for f in r/results-*.txt; do n=${f#r/results-}; n=${n%.txt}
               echo "| $n | $(grep -c '^OK' "$f") | $(grep -c '^FAIL' "$f") | $(grep -c '^SKIP' "$f") |"; done
             echo; echo "### Failures"; echo '```'; grep -hE '^FAIL' r/*.txt | cut -c1-300; echo '```'
+            echo; echo "### Skipped"; echo '```'; grep -hE '^SKIP' r/*.txt | cut -c1-300; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           ! grep -qhE '^FAIL' r/*.txt

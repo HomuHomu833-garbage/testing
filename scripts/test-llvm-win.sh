@@ -25,7 +25,7 @@ VER="${1:-}"
 FILTER="${2:-}"
 TAG="llvm-${VER%%[!r0-9]*}"   # r20-beta1 -> llvm-r20, r21e -> llvm-r21
 WORK="${WORK:-$HOME/llvm-win-test}"
-WINE="${WINE:-wine}"
+WINE="${WINE-wine}"   # WINE= (empty) runs the .exe files natively, e.g. Git Bash on Windows
 WIN_ARCHES="${WIN_ARCHES:-x86_64 i686 aarch64 arm64ec armv7}"
 OFFICIAL="${OFFICIAL:-0}"
 TIMEOUT="${TIMEOUT:-180}"
@@ -62,22 +62,23 @@ declare -A PKG=(
   [mips64-gnuabi64]=libc6-mips64-cross [mips64el-gnuabi64]=libc6-mips64el-cross
 )
 
-for t in curl python3 tar xz unzip "$WINE"; do
+for t in curl python3 tar xz unzip ${WINE:+"$WINE"}; do
   command -v "$t" >/dev/null || { echo "missing tool: $t"; exit 1; }
 done
 
 export WINEPREFIX="${WINEPREFIX:-$WORK/wineprefix}" WINEDEBUG="${WINEDEBUG:--all}"
-[[ -d $WINEPREFIX ]] || { echo "--> creating wine prefix $WINEPREFIX"; "$WINE" wineboot -i >/dev/null 2>&1; }
+[[ -z $WINE || -d $WINEPREFIX ]] || { echo "--> creating wine prefix $WINEPREFIX"; "$WINE" wineboot -i >/dev/null 2>&1; }
 ok=0; fail=0; warn=0; skip=0; CUR=""
 RUNNER=()   # how to run the NDK's own (host) binaries
 TR=()       # how to run the produced Android test binaries
 
+winpath() { if [[ -n $WINE ]]; then winepath -w "$1" 2>/dev/null | tr -d '\r'; else cygpath -w "$1"; fi; }
 log()  { echo "$1" | tee -a "$RESULTS"; }
 pass() { log "OK    [$CUR] $1"; ((ok++)); return 0; }
 bad()  { log "FAIL  [$CUR] $1 :: $(tr '\n' ' ' <<<"${2:-}" | cut -c1-220)"; ((fail++)); return 0; }
 note() { log "WARN  [$CUR] $1"; ((warn++)); return 0; }
 info() { log "INFO  [$CUR] $1"; return 0; }
-run()  { timeout "$TIMEOUT" "$WINE" "$@"; }   # Windows tools
+run()  { timeout "$TIMEOUT" ${WINE:+"$WINE"} "$@"; }   # Windows tools
 trun() { chmod +x "$1" 2>/dev/null; timeout "$TIMEOUT" "${TR[@]}" "$@"; }   # files written by wine lack +x
 
 step() {   # step LABEL cmd...   -> pass if rc==0
@@ -175,6 +176,7 @@ declare -A T_INTERP=([aarch64]=linker64 [armv7a]=linker [i686]=linker [x86_64]=l
 # sets TR (runner for produced binaries) and returns 1 if the target cannot be run here
 target_runner() {
   local a=$1; TR=()
+  [[ -z $WINE ]] && return 1   # native Windows cannot run Linux/Android binaries
   case $a in
     x86_64) [[ "$(uname -m)" == x86_64 ]] && return 0; TR=(qemu-x86_64) ;;
     i686)   if command -v qemu-i386 >/dev/null; then TR=(qemu-i386); else return 0; fi ;;
@@ -214,7 +216,7 @@ test_ndk() {
   # clang spawns its own children (cc1, ld.lld). On a foreign host arch that only works when
   # binfmt_misc runs foreign binaries transparently (qemu-user-binfmt + systemd in WSL).
   local SPAWN=1
-  if ! "$WINE" "$CLANG" --version >/dev/null 2>&1; then
+  if ! run "$CLANG" --version >/dev/null 2>&1; then
     SPAWN=0
     note "(install qemu-user-binfmt to run them) binfmt_misc not active for this arch: skipping everything that needs clang to spawn ld.lld/cc1 (cross-compile matrix, object-based LLVM tool tests, ndk-build)"
   fi
@@ -272,7 +274,7 @@ test_ndk() {
       if step "clang -g -shared (strip input)" run "$CLANG" $TA -g -shared -fPIC lib.c -o hs.so; then
         cp hs.so hs.stripped.so
         step   "llvm-strip"               run "$(l llvm-strip)" hs.stripped.so
-        step   "llvm-strip shrinks file"  test "$(stat -c %s hs.stripped.so)" -lt "$(stat -c %s hs.so)"
+        step   "llvm-strip shrinks file"  test "$(wc -c <hs.stripped.so)" -lt "$(wc -c <hs.so)"
       fi
     fi
     have llvm-objcopy && step "llvm-objcopy --strip-debug" run "$(l llvm-objcopy)" --strip-debug h.o h2.o
@@ -287,7 +289,7 @@ test_ndk() {
   fi
   have clang-format && expect "clang-format" 'int main\(\) \{ return 0; \}' run "$(l clang-format)" fmt.c
   # older clang-tidy does not find the NDK sysroot by itself
-  have clang-tidy && step "clang-tidy" run "$(l clang-tidy)" hello.c -checks='-*,bugprone-*' -- $TA --sysroot="$(winepath -w "$(dirname "$LLVM")/sysroot" 2>/dev/null | tr -d '\r')"   # r21's clang-tidy.exe misreads a Unix path
+  have clang-tidy && step "clang-tidy" run "$(l clang-tidy)" hello.c -checks='-*,bugprone-*' -- $TA --sysroot="$(winpath "$(dirname "$LLVM")/sysroot")"   # r21's clang-tidy.exe misreads a Unix path
   if have clang-scan-deps; then
     # LLVM 9-14 had no -format=make / "-- <command>" form; Google ships no clang-scan-deps there
     out=$(run "$(l clang-scan-deps)" -format=make -- "$CLANG" -c $TA hello.cpp 2>&1)
@@ -488,7 +490,7 @@ for url in "${URLS[@]}"; do
   overlay "$dir" "$ours"; rm -rf "$dir.src"
 
   # can Wine start this architecture at all?
-  pout=$(timeout "$TIMEOUT" "$WINE" "$dir/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe" --version 2>&1); prc=$?
+  pout=$(run "$dir/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe" --version 2>&1); prc=$?
   if [[ $prc -ne 0 ]]; then
     log "SKIP  [$CUR] wine cannot run this PE here (rc=$prc): $(tr '\n\r' '  ' <<<"$pout" | cut -c1-160)"; ((skip++))
   else
