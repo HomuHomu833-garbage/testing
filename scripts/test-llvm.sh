@@ -507,7 +507,7 @@ for url in "${URLS[@]}"; do
   case $abi in *x32) qsuf=native ;; esac   # x32 runs on an x86_64 kernel built with x32 support
   [[ $abi == *abin32 ]] && case $arch in mips64) qsuf=mipsn32 ;; mips64el) qsuf=mipsn32el ;; esac
 
-  RUNNER=()
+  RUNNER=(); unset QEMU_LD_PREFIX
   if [[ $qsuf != native ]]; then
     q="qemu-$qsuf"; command -v "$q" >/dev/null || q="qemu-$qsuf-static"
     command -v "$q" >/dev/null || { log "SKIP  [$CUR] qemu-$qsuf not installed"; ((skip++)); continue; }
@@ -531,12 +531,13 @@ for url in "${URLS[@]}"; do
     interp=""
     command -v readelf >/dev/null && [[ -n $probe ]] && interp=$(readelf -lW "$probe" 2>/dev/null | sed -n 's/.*Requesting program interpreter: \(.*\)\]/\1/p')
     if [[ -n $interp ]]; then
-      sr="${SYSROOT[$arch-$abi]:-}"
+      sr="${GLIBC_SYSROOT:-${SYSROOT[$arch-$abi]:-}}"   # GLIBC_SYSROOT: e.g. a bootlin toolchain's sysroot
       if [[ -z $sr || ! -d $sr ]]; then
         log "SKIP  [$CUR] dynamic glibc build, sysroot ${sr:-none known} missing; ${PKG[$arch-$abi]:+try: sudo apt install ${PKG[$arch-$abi]}}"
         ((skip++)); [[ $KEEP_EXTRACTED == 1 ]] || rm -rf "$dir"; continue
       fi
-      RUNNER+=(-L "$sr")
+      # QEMU_LD_PREFIX, unlike -L, also reaches the cc1/ld.lld children clang starts through binfmt
+      RUNNER+=(-L "$sr"); export QEMU_LD_PREFIX="$sr"
     fi
   fi
 
@@ -544,7 +545,7 @@ for url in "${URLS[@]}"; do
   if [[ $qsuf == native && ( $HOST_OS != linux || $abi == *x32 ) ]]; then
     probe=$(find "$dir" -type f -name 'llvm-cxxfilt' 2>/dev/null | head -n1)
     pout=$(timeout "$TIMEOUT" "$probe" _Z3foov 2>&1); prc=$?
-    if [[ $prc -eq 126 || $prc -eq 127 ]] || grep -qiE 'exec format|cannot execute|bad cpu type|not supported' <<<"$pout"; then
+    if [[ $prc -eq 126 || $prc -eq 127 ]] || grep -qiE 'exec format|cannot execute|bad cpu type|not supported|syntax error' <<<"$pout"; then
       log "SKIP  [$CUR] this $(uname -sm) machine cannot execute it (rc=$prc): $(tr '\n' ' ' <<<"$pout" | cut -c1-120)"; ((skip++))
       [[ $KEEP_EXTRACTED == 1 ]] || rm -rf "$dir"; [[ $PRUNE_ARCHIVES == 1 ]] && rm -f "$WORK/dl/$file"; continue
     fi
