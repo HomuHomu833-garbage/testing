@@ -35,8 +35,9 @@ rm -rf stage; mkdir -p stage; cp -R "$SRC/scripts" stage/
   echo 'dhcpcd -w -q 2>/dev/null; ifconfig -a | grep "inet "'
   if [ -n "$pk" ]; then
     echo "PKG_PATH=http://cdn.netbsd.org/pub/pkgsrc/packages/NetBSD/$pk/$V/All; export PKG_PATH"
-    echo 'pkg_add bash curl unzip coreutils gtar xz mozilla-rootcerts-openssl 2>&1 | tail -3'
-    echo 'pkg_add python311 2>&1 | tail -2 || pkg_add python312 2>&1 | tail -2'
+    echo 'grep -q nameserver /etc/resolv.conf 2>/dev/null || echo nameserver 10.0.2.3 > /etc/resolv.conf'
+    echo 'for x in bash curl unzip coreutils gtar xz mozilla-rootcerts python311; do pkg_add $x 2>&1 | tail -2; done'
+    echo 'mozilla-rootcerts install >/dev/null 2>&1; pkg_info | cut -c1-40'
     echo 'mkdir -p /root/gnubin; for x in /usr/pkg/bin/python3.1[0-9]; do ln -sf $x /root/gnubin/python3; done'
     echo 'ln -sf /usr/pkg/bin/gtimeout /root/gnubin/timeout; ln -sf /usr/pkg/bin/gtar /root/gnubin/tar'
     echo 'PATH=/root/gnubin:/usr/pkg/bin:$PATH; export PATH; python3 -V'
