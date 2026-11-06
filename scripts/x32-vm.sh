@@ -21,7 +21,7 @@ runcmd:
   - sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="/&syscall.x32=y /' /etc/default/grub
   - update-grub
   - DEBIAN_FRONTEND=noninteractive apt-get update -q
-  - DEBIAN_FRONTEND=noninteractive apt-get install -yq curl python3 unzip xz-utils binutils
+  - DEBIAN_FRONTEND=noninteractive apt-get install -yq curl python3 unzip xz-utils binutils libc6-x32 libstdc++6-x32-cross || DEBIAN_FRONTEND=noninteractive apt-get install -yq curl python3 unzip xz-utils binutils libc6-x32
   - touch /var/lib/x32-ready
 power_state: { mode: reboot, condition: true }
 UD

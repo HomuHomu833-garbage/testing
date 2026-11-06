@@ -416,7 +416,12 @@ fetch_base() {
   fi
   echo "--> extracting the official toolchain"
   rm -rf "$BASE"; mkdir -p "$BASE"
-  unzip -qo "$z" '*/toolchains/llvm/prebuilt/windows-x86_64/*' '*/source.properties' -d "$BASE" || return 1
+  if [[ -z $WINE && -x /c/Windows/System32/tar.exe ]]; then
+    # Git Bash's unzip leaves the toolchain's subdirectories out on Windows; Windows' bsdtar reads zips
+    (cd "$BASE" && /c/Windows/System32/tar.exe -xf "$(cygpath -w "$z")") || return 1
+  else
+    unzip -qo "$z" '*/toolchains/llvm/prebuilt/windows-x86_64/*' '*/source.properties' -d "$BASE" || return 1
+  fi
   touch "$BASE/.done"
 }
 

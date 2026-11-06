@@ -277,6 +277,7 @@ jobs:
       - name: Test in the VM
         shell: cpa.sh {0}
         run: |
+          export REPO='${{ inputs.source }}' REL='${{ inputs.release }}' T='${{ matrix.h.triple }}' HOST_OS='${{ matrix.h.os }}' PRUNE_ARCHIVES=1
           sh ./scripts/bsd-setup.sh
           export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
           bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
