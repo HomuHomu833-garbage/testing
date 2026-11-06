@@ -54,10 +54,11 @@ jobs:
           wine=$(pick '^(x86_64|i686)-w64-mingw32$' | sed 's/-w64-mingw32//' | j)
           winarm=$(pick '^(aarch64|arm64ec)-w64-mingw32$' | sed 's/-w64-mingw32//' | j)
           darwin=$(pick '-apple-darwin$' | jq -cnR '[inputs | select(length>0) | {triple: ., runner: (if test("^x86_64") then "macos-15-intel" else "macos-15" end)}]')
-          # BSD VMs exist for x86-64 and arm64; x86 builds run on the x86-64 VM (32-bit compat, not on OpenBSD)
+          # BSD VMs exist for x86-64 and arm64 (and FreeBSD riscv64); x86 builds run on the x86-64 VM (32-bit compat, not on OpenBSD)
           bsd=$(pick '-(freebsd|netbsd|openbsd)-' | jq -cnR '[inputs | select(length>0)
                  | (split("-")) as $p | {triple: ., os: $p[1],
-                    vmarch: (if $p[0]=="aarch64" then "arm64" elif ($p[0]=="x86_64" or $p[0]=="x86") then "x86-64" else "" end)}
+                    vmarch: (if $p[0]=="aarch64" then "arm64" elif ($p[0]=="x86_64" or $p[0]=="x86") then "x86-64"
+                            elif ($p[0]=="riscv64" and $p[1]=="freebsd") then "riscv64" else "" end)}
                  | select(.vmarch != "") | select((.os=="openbsd" and (.triple|startswith("x86-"))) | not)]')
           { echo "linux=$lin"; echo "wine=$wine"; echo "winarm=$winarm"; echo "darwin=$darwin"; echo "bsd=$bsd"; } >> "$GITHUB_OUTPUT"
           {
@@ -237,7 +238,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test in a ${{ matrix.h.os }} ${{ matrix.h.vmarch }} VM
-        uses: cross-platform-actions/action@v0.27.0
+        uses: cross-platform-actions/action@v1.7.0
         env:
           REPO: ${{ inputs.source }}
           REL: ${{ inputs.release }}
@@ -247,7 +248,7 @@ jobs:
         with:
           operating_system: ${{ matrix.h.os }}
           architecture: ${{ matrix.h.vmarch }}
-          version: ${{ matrix.h.os == 'freebsd' && '14.2' || matrix.h.os == 'netbsd' && '10.1' || '7.6' }}
+          version: ${{ matrix.h.os == 'freebsd' && '15.1' || matrix.h.os == 'netbsd' && '11.0' || '8.0' }}
           memory: 8G
           cpu_count: 4
           environment_variables: REPO REL T HOST_OS PRUNE_ARCHIVES

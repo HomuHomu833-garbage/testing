@@ -460,7 +460,7 @@ overlay() {
       mkdir -p "$tc/lib/clang"; cp -a "$rd" "$tc/lib/clang/$v"
       info "resource dir lib/clang/$v is ours; Google's is ${g#$tc/}"
     fi
-    [[ -n $g && -d $g/lib ]] && { mkdir -p "$tc/lib/clang/$v/lib"; cp -an "$g/lib/." "$tc/lib/clang/$v/lib/"; }
+    [[ -n $g && -d $g/lib ]] && { mkdir -p "$tc/lib/clang/$v/lib"; (cd "$g/lib" && tar -cf - .) | (cd "$tc/lib/clang/$v/lib" && tar -xkf - 2>/dev/null); }   # tar -k: keep ours, portable unlike cp -n
   done
 }
 
