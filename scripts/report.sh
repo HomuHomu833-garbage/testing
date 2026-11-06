@@ -8,3 +8,4 @@ if [ -n "$f" ]; then cp "$f" "$out"; else echo "FAIL  [$n] no results (the test 
   echo "OK=$(grep -c '^OK' "$out") FAIL=$(grep -c '^FAIL' "$out") SKIP=$(grep -c '^SKIP' "$out")"
   echo '```'; grep -E '^(FAIL|SKIP)' "$out" | cut -c1-300; echo '```'
 } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+! grep -q '^FAIL' "$out"

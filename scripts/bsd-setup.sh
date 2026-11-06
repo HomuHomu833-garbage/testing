@@ -4,7 +4,12 @@
 set -x
 mkdir -p "$HOME/gnubin"
 case "$(uname -s)" in
-  FreeBSD) sudo pkg install -y bash curl python3 unzip coreutils ;;
+  FreeBSD) sudo pkg install -y bash curl python3 unzip coreutils
+           # 32-bit compat libraries for x86 builds (the VM image ships without lib32)
+           if [ ! -e /usr/lib32/libm.so.5 ]; then
+             r=$(freebsd-version -u | sed 's/-p[0-9]*$//')
+             curl -fsSL "https://download.freebsd.org/releases/amd64/$r/lib32.txz" | sudo tar -xpf - -C /
+           fi ;;
   NetBSD)  sudo pkgin -y install bash curl python311 unzip coreutils gtar xz || sudo pkgin -y install bash curl python312 unzip coreutils gtar xz ;;
   OpenBSD) sudo pkg_add -I bash curl python%3 unzip-- coreutils gtar-- xz ;;
 esac
