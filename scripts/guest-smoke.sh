@@ -16,7 +16,10 @@ bad()  { log "FAIL  [$CUR] $1 :: $(echo "$2" | tr '\n' ' ' | cut -c1-400)"; fail
 step() { l=$1; shift; o=$("$@" 2>&1); r=$?; if [ $r -eq 0 ]; then pass "$l"; else bad "$l (rc=$r)" "$o"; fi; return $r; }
 expect() { l=$1; pat=$2; shift 2; o=$("$@" 2>&1); r=$?
   if [ $r -eq 0 ] && echo "$o" | grep -qE -- "$pat"; then pass "$l"; else bad "$l (rc=$r, wanted /$pat/)" "$o"; fi; }
-get() { if command -v curl >/dev/null; then curl -fsSL -o "$2" "$1"; else ftp -V -o "$2" "$1"; fi; }
+get() { if command -v curl >/dev/null; then curl -fsSL -o "$2" "$1"
+  elif command -v fetch >/dev/null; then fetch -q -o "$2" "$1"; else ftp -V -o "$2" "$1"; fi; }
+# zip: unzip, or bsdtar (FreeBSD/NetBSD base tar reads zip archives)
+unz() { if command -v unzip >/dev/null; then unzip -qo "$1" "$2" -d "$3" >/dev/null; else tar -xf "$1" -C "$3" "$2"; fi; }
 
 asset="bolt+clang+clang-tools-extra+lld+polly-$REL-$T.tar.xz"
 [ -f "dl/$asset" ] || get "https://github.com/$REPO/releases/download/$TAG/$(echo "$asset" | sed 's/+/%2B/g')" "dl/$asset" \
@@ -26,7 +29,7 @@ z=dl/ndk.zip
   || get "https://dl.google.com/android/repository/android-ndk-$REL-linux-x86_64.zip" $z || { bad "download official NDK" ""; exit 1; }
 rm -rf x base; mkdir -p x base
 xz -dc "dl/$asset" | tar -xf - -C x || { bad "extract our toolchain" ""; exit 1; }
-unzip -qo $z '*/toolchains/llvm/prebuilt/linux-x86_64/*' -d base >/dev/null || { bad "extract official NDK" ""; exit 1; }
+unz $z '*/toolchains/llvm/prebuilt/linux-x86_64/*' base || { bad "extract official NDK" ""; exit 1; }
 TC=$(echo base/*/toolchains/llvm/prebuilt/linux-x86_64); OURS=$(echo x/*)
 rm -rf "$TC/bin"; cp -R "$OURS/bin" "$TC/bin"
 G=$(ls -d "$TC"/lib64/clang/*/ "$TC"/lib/clang/*/ 2>/dev/null | head -n1)

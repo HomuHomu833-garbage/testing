@@ -280,7 +280,8 @@ jobs:
           export REPO='${{ inputs.source }}' REL='${{ inputs.release }}' T='${{ matrix.h.triple }}' HOST_OS='${{ matrix.h.os }}' PRUNE_ARCHIVES=1
           sh ./scripts/bsd-setup.sh
           export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
-          bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
+          if command -v python3 >/dev/null && command -v bash >/dev/null; then bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
+          else echo "no python3/bash packages for this port: sh-only smoke test"; sh ./scripts/guest-smoke.sh "$REL" "$T" || true; fi
           cp "$HOME"/w/results-*.txt ./bsd-results.txt 2>/dev/null || true
       - name: Report
         if: always()

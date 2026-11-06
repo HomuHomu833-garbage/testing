@@ -299,7 +299,17 @@ test_ndk() {
   fi
   have clang-format && expect "clang-format" 'int main\(\) \{ return 0; \}' run "$(l clang-format)" fmt.c
   # older clang-tidy does not find the NDK sysroot by itself
-  have clang-tidy && step "clang-tidy" run "$(l clang-tidy)" hello.c -checks='-*,bugprone-*' -- $TA --sysroot="$(dirname "$LLVM")/sysroot"
+  if have clang-tidy; then
+    local tout trd; tout=$(run "$(l clang-tidy)" hello.c -checks='-*,bugprone-*' -- $TA --sysroot="$(dirname "$LLVM")/sysroot" 2>&1)
+    if [[ $? -eq 0 ]]; then pass "clang-tidy"
+    else
+      # where LLVM cannot find its own executable (no /proc, OpenBSD), tools guess the resource dir wrong
+      trd=$(run "$CLANG" -print-resource-dir 2>/dev/null)
+      if [[ -n $trd ]] && run "$(l clang-tidy)" hello.c -checks='-*,bugprone-*' -- $TA --sysroot="$(dirname "$LLVM")/sysroot" -resource-dir "$trd" >/dev/null 2>&1; then
+        note "clang-tidy only works with an explicit -resource-dir on this host (it cannot locate its own executable)"
+      else bad "clang-tidy" "$tout"; fi
+    fi
+  fi
   if have clang-scan-deps; then
     # LLVM 9-14 had no -format=make / "-- <command>" form; Google ships no clang-scan-deps there
     out=$(run "$(l clang-scan-deps)" -format=make -- "$CLANG" -c $TA hello.cpp 2>&1)
