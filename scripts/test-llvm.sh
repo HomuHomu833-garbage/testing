@@ -434,7 +434,7 @@ fetch_base() {
   fi
   echo "--> extracting the official toolchain"
   rm -rf "$BASE"; mkdir -p "$BASE"
-  unzip -q "$z" '*/toolchains/llvm/prebuilt/linux-x86_64/*' '*/source.properties' -d "$BASE" || return 1
+  unzip -qo "$z" '*/toolchains/llvm/prebuilt/linux-x86_64/*' '*/source.properties' -d "$BASE" || return 1
   touch "$BASE/.done"
 }
 

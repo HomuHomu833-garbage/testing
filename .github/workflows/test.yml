@@ -176,10 +176,11 @@ jobs:
           REPO: ${{ inputs.source }}
           REL: ${{ inputs.release }}
           WIN_ARCHES: ${{ matrix.arch }}
-          WORK: ${{ runner.temp }}/w
           WINE: ""
           PRUNE_ARCHIVES: "1"
-        run: ./scripts/test-llvm-win.sh "$REL"
+        run: |
+          export WORK="$(cygpath -u "$RUNNER_TEMP")/w"
+          ./scripts/test-llvm-win.sh "$REL"
       - name: Report
         if: always()
         run: ./scripts/report.sh "${{ matrix.arch }}-w64-mingw32"
