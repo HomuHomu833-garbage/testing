@@ -58,7 +58,8 @@ with open(cmds) as f:
             break
 try:
     p.sendline("sync; shutdown -p now 2>/dev/null || halt -p")
-    p.expect(pexpect.EOF, timeout=300)
+    p.expect([pexpect.EOF, r"halted", r"press any key to reboot"], timeout=300)
 except Exception:
-    p.terminate(force=True)
+    pass
+p.terminate(force=True)   # some ports halt instead of powering off
 sys.exit(rc)
