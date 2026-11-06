@@ -437,7 +437,7 @@ fetch_base() {
   if [[ ! -f $z ]]; then
     for u in "android-ndk-$VER-linux.zip" "android-ndk-$VER-linux-x86_64.zip"; do
       echo "--> downloading official $u"
-      curl -fL --retry 3 -o "$z.part" "https://dl.google.com/android/repository/$u" && { mv "$z.part" "$z"; break; }
+      curl -fL --retry 5 --retry-all-errors --retry-delay 10 -o "$z.part" "https://dl.google.com/android/repository/$u" && { mv "$z.part" "$z"; break; }
       rm -f "$z.part"
     done
     [[ -f $z ]] || { echo "official NDK $VER not found on dl.google.com"; return 1; }
@@ -541,7 +541,7 @@ for url in "${URLS[@]}"; do
 
   if [[ ! -f "$WORK/dl/$file" ]]; then
     echo "--> downloading $file"
-    curl -fL --retry 3 -o "$WORK/dl/$file.part" "$url" && mv "$WORK/dl/$file.part" "$WORK/dl/$file" \
+    curl -fL --retry 5 --retry-all-errors --retry-delay 10 -o "$WORK/dl/$file.part" "$url" && mv "$WORK/dl/$file.part" "$WORK/dl/$file" \
       || { log "FAIL  [$CUR] download failed"; ((fail++)); rm -f "$WORK/dl/$file.part"; continue; }
   fi
   echo "--> extracting"

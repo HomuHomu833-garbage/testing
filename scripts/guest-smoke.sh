@@ -46,8 +46,13 @@ expect "clang --version" "clang version" "$L/clang" --version
 expect "ld.lld --version" "LLD" "$L/ld.lld" --version
 expect "llvm-cxxfilt" 'foo\(\)' "$L/llvm-cxxfilt" _Z3foov
 expect "clang-format" 'int main\(\) \{ return 0; \}' "$L/clang-format" fmt.c
-for t in aarch64-linux-android30 armv7a-linux-androideabi29 i686-linux-android21 x86_64-linux-android21; do
-  a=${t%%-*}
+SR="$PWD/../$TC/sysroot/usr/lib"
+for t in aarch64-linux-android:30 armv7a-linux-androideabi:29 i686-linux-android:21 x86_64-linux-android:21; do
+  tr=${t%%:*}; api=${t#*:}; a=${tr%%-*}; ld=$tr; [ "$a" = armv7a ] && ld=arm-linux-androideabi
+  # older sysroots (r20, r21) stop below the API levels test-llvm.sh uses: take their highest
+  top=$(ls "$SR/$ld" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -n1)
+  [ -n "$top" ] && [ "$top" -lt "$api" ] && api=$top
+  t=$tr$api
   step "[$a] compile+link C (static)" "$L/clang" --target=$t -O2 -static hello.c -o "c_$a"
   step "[$a] compile+link C++ (static, libc++)" "$L/clang++" --target=$t -O2 -static hello.cpp -o "cpp_$a"
   step "[$a] compile+link C with ThinLTO" "$L/clang" --target=$t -O2 -flto=thin -static hello.c -o "lto_$a"
