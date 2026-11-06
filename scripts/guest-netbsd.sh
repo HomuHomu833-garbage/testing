@@ -31,7 +31,7 @@ rm -rf stage; mkdir -p stage; cp -R "$SRC/scripts" stage/
   echo 'R=$(sysctl -n kern.rawpartition 2>/dev/null | awk '"'"'{printf "%c", 97+$1}'"'"'); [ -n "$R" ] || R=c'
   echo 'pick() { for d in $(sysctl -n hw.disknames | tr , " "); do case $d in ld*|sd*|wd*|vnd*) [ "$(disklabel $d 2>/dev/null | awk '"'"'/total sectors/{print $3}'"'"')" = "$1" ] && echo $d;; esac; done; }'
   echo 'WD=$(pick 83886080); RD=$(pick 65536); echo "disks: work=$WD results=$RD"'
-  echo 'newfs /dev/r${WD}$R >/dev/null && mkdir -p /w && mount -o async /dev/${WD}$R /w || exit 1'
+  echo 'newfs -I /dev/r${WD}$R >/dev/null && mkdir -p /w && mount -o async /dev/${WD}$R /w || exit 1'
   echo 'dhcpcd -w -q 2>/dev/null; ifconfig -a | grep "inet "'
   if [ -n "$pk" ]; then
     echo "PKG_PATH=http://cdn.netbsd.org/pub/pkgsrc/packages/NetBSD/$pk/$V/All; export PKG_PATH"

@@ -35,6 +35,7 @@ jobs:
       darwin: ${{ steps.list.outputs.darwin }}
       bsd: ${{ steps.list.outputs.bsd }}
       x32: ${{ steps.list.outputs.x32 }}
+      nbguest: ${{ steps.list.outputs.nbguest }}
     steps:
       - id: list
         env:
@@ -54,6 +55,8 @@ jobs:
           lin=$(pick '-linux-' | grep -vE 'x32$' | jq -cnR '[inputs | select(length>0) | {triple: ., runner: (if test("^aarch64-") then "ubuntu-24.04-arm" else "ubuntu-24.04" end)}]')
           # x32 needs a kernel with x32 enabled: Debian VM booted with syscall.x32=y
           x32=$(pick 'x32$' | j)
+          # NetBSD ports with images qemu-system can boot (scripts/guest-netbsd.sh)
+          nbguest=$(pick '^(riscv64|riscv32|aarch64_be)-netbsd-none$|^(arm|armeb)-netbsd-eabihf$' | j)
           wine=$(pick '^(x86_64|i686)-w64-mingw32$' | sed 's/-w64-mingw32//' | j)
           winarm=$(pick '^(aarch64|arm64ec)-w64-mingw32$' | sed 's/-w64-mingw32//' | j)
           darwin=$(pick '-apple-darwin$' | jq -cnR '[inputs | select(length>0) | {triple: ., runner: (if test("^x86_64") then "macos-15-intel" else "macos-15" end)}]')
@@ -64,13 +67,13 @@ jobs:
                             elif ($p[0]=="riscv64" and $p[1]=="freebsd") then "riscv64"
                             elif ($p[0]=="arm" and $p[1]=="freebsd") then "x86-64" else "" end)}
                  | select(.vmarch != "") | select((.os=="openbsd" and (.triple|startswith("x86-"))) | not)]')
-          { echo "linux=$lin"; echo "wine=$wine"; echo "winarm=$winarm"; echo "darwin=$darwin"; echo "bsd=$bsd"; echo "x32=$x32"; } >> "$GITHUB_OUTPUT"
+          { echo "linux=$lin"; echo "wine=$wine"; echo "winarm=$winarm"; echo "darwin=$darwin"; echo "bsd=$bsd"; echo "x32=$x32"; echo "nbguest=$nbguest"; } >> "$GITHUB_OUTPUT"
           {
             echo "### Hosts"
-            echo "Linux/Android: $(jq length <<<"$lin"), Windows (Wine): $(jq length <<<"$wine"), Windows arm64: $(jq length <<<"$winarm"), macOS: $(jq length <<<"$darwin"), BSD: $(jq length <<<"$bsd"), x32 VM: $(jq length <<<"$x32")"
+            echo "Linux/Android: $(jq length <<<"$lin"), Windows (Wine): $(jq length <<<"$wine"), Windows arm64: $(jq length <<<"$winarm"), macOS: $(jq length <<<"$darwin"), BSD: $(jq length <<<"$bsd"), x32 VM: $(jq length <<<"$x32"), NetBSD guests: $(jq length <<<"$nbguest")"
             echo; echo "No runner can execute these builds (not tested):"
             echo '```'
-            comm -23 <(sort <<<"$all") <({ jq -r '.[].triple' <<<"$lin"; jq -r '.[]+"-w64-mingw32"' <<<"$wine"; jq -r '.[]+"-w64-mingw32"' <<<"$winarm"; jq -r '.[].triple' <<<"$darwin"; jq -r '.[].triple' <<<"$bsd"; jq -r '.[]' <<<"$x32"; } | sort)
+            comm -23 <(sort <<<"$all") <({ jq -r '.[].triple' <<<"$lin"; jq -r '.[]+"-w64-mingw32"' <<<"$wine"; jq -r '.[]+"-w64-mingw32"' <<<"$winarm"; jq -r '.[].triple' <<<"$darwin"; jq -r '.[].triple' <<<"$bsd"; jq -r '.[]' <<<"$x32"; jq -r '.[]' <<<"$nbguest"; } | sort)
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -325,8 +328,37 @@ jobs:
           name: results-${{ matrix.triple }}
           path: results-${{ matrix.triple }}.txt
 
+  nbguest:
+    needs: plan
+    if: needs.plan.outputs.nbguest != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        triple: ${{ fromJSON(needs.plan.outputs.nbguest) }}
+    name: netbsd-guest (${{ matrix.triple }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qemu-system
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq qemu-system-misc qemu-system-arm python3-pexpect
+      - name: Test in a NetBSD guest (qemu-system, emulated)
+        env:
+          REPO: ${{ inputs.source }}
+        run: ./scripts/guest-netbsd.sh "${{ inputs.release }}" "${{ matrix.triple }}"
+      - name: Report
+        if: always()
+        run: ./scripts/report.sh "${{ matrix.triple }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.triple }}
+          path: results-${{ matrix.triple }}.txt
+
   summary:
-    needs: [linux, wine, winarm, darwin, bsd, x32]
+    needs: [linux, wine, winarm, darwin, bsd, x32, nbguest]
     if: always()
     runs-on: ubuntu-latest
     steps:
