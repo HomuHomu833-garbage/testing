@@ -75,7 +75,7 @@ TR=()       # how to run the produced Android test binaries
 winpath() { if [[ -n $WINE ]]; then winepath -w "$1" 2>/dev/null | tr -d '\r'; else cygpath -w "$1"; fi; }
 log()  { echo "$1" | tee -a "$RESULTS"; }
 pass() { log "OK    [$CUR] $1"; ((ok++)); return 0; }
-bad()  { log "FAIL  [$CUR] $1 :: $(tr '\n' ' ' <<<"${2:-}" | cut -c1-220)"; ((fail++)); return 0; }
+bad()  { local m; m=$(tr '\n' ' ' <<<"${2:-}"); ((${#m} > 420)) && m="${m:0:150} ... ${m: -270}"; log "FAIL  [$CUR] $1 :: $m"; ((fail++)); return 0; }
 note() { log "WARN  [$CUR] $1"; ((warn++)); return 0; }
 info() { log "INFO  [$CUR] $1"; return 0; }
 run()  { timeout "$TIMEOUT" ${WINE:+"$WINE"} "$@"; }   # Windows tools
@@ -485,7 +485,8 @@ for url in "${URLS[@]}"; do
   fi
   echo "--> extracting"
   rm -rf "$dir.src"; mkdir -p "$dir.src"
-  tar -xf "$WORK/dl/$file" -C "$dir.src" || { log "FAIL  [$CUR] extract failed"; ((fail++)); rm -rf "$dir.src"; continue; }
+  # Git Bash makes a symlink as a copy of its target, which may come later in the archive: 2nd pass
+  tar -xf "$WORK/dl/$file" -C "$dir.src" 2>/dev/null || tar -xf "$WORK/dl/$file" -C "$dir.src" || { log "FAIL  [$CUR] extract failed"; ((fail++)); rm -rf "$dir.src"; continue; }
   ours=$(dirname "$(find "$dir.src" -maxdepth 3 -type d -name bin | head -n1)")
   overlay "$dir" "$ours"; rm -rf "$dir.src"
 

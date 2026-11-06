@@ -85,7 +85,7 @@ TR=()       # how to run the produced Android test binaries
 command -v timeout >/dev/null || { command -v gtimeout >/dev/null && timeout() { gtimeout "$@"; }; }
 log()  { echo "$1" | tee -a "$RESULTS"; }
 pass() { log "OK    [$CUR] $1"; ((ok++)); return 0; }
-bad()  { log "FAIL  [$CUR] $1 :: $(tr '\n' ' ' <<<"${2:-}" | cut -c1-220)"; ((fail++)); return 0; }
+bad()  { local m; m=$(tr '\n' ' ' <<<"${2:-}"); ((${#m} > 420)) && m="${m:0:150} ... ${m: -270}"; log "FAIL  [$CUR] $1 :: $m"; ((fail++)); return 0; }
 note() { log "WARN  [$CUR] $1"; ((warn++)); return 0; }
 info() { log "INFO  [$CUR] $1"; return 0; }
 run()  { timeout "$TIMEOUT" "${RUNNER[@]}" "$@"; }
@@ -487,6 +487,21 @@ if [[ $OFFICIAL == 1 ]]; then
 fi
 
 case $HOST_OS in linux) HOST_PAT='-linux-' ;; darwin) HOST_PAT='-apple-darwin' ;; *) HOST_PAT="-$HOST_OS-" ;; esac
+BF=/proc/sys/fs/binfmt_misc; BF_WRAPPED=""
+asroot() { if [[ $(id -u) == 0 ]]; then "$@"; else sudo -n "$@"; fi; }
+binfmt_wrap() {   # binfmt_wrap QEMU_SUFFIX SYSROOT
+  local q=$1 sr=$2 conf="/usr/lib/binfmt.d/qemu-$1.conf" w="$WORK/qwrap-$1"
+  [[ -f $conf && -e $BF/qemu-$q ]] || { echo "    (no binfmt rule for qemu-$q to wrap)"; return 0; }
+  printf '#!/bin/sh\nexec %s -L %s "$@"\n' "$(command -v "qemu-$q")" "$sr" > "$w"; chmod +x "$w"
+  asroot sh -c "echo -1 > $BF/qemu-$q && printf '%s' '$(grep -v '^#' "$conf" | head -n1 | cut -d: -f1-6):$w:' > $BF/register" && BF_WRAPPED=$q
+}
+binfmt_restore() {
+  [[ -n $BF_WRAPPED ]] || return 0
+  local q=$BF_WRAPPED; BF_WRAPPED=""
+  asroot sh -c "echo -1 > $BF/qemu-$q; printf '%s' '$(grep -v '^#' "/usr/lib/binfmt.d/qemu-$q.conf" | head -n1)' > $BF/register"
+}
+trap binfmt_restore EXIT
+
 echo "==> Looking up $HOST_OS LLVM assets for $REPO @ $TAG (release $VER)"
 html=$(curl -fsSL "https://github.com/$REPO/releases/expanded_assets/$TAG") || { echo "release $TAG not found"; exit 1; }
 mapfile -t URLS < <(grep -oE "releases/download/$TAG/[A-Za-z0-9_.+%-]+-$VER-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
@@ -507,7 +522,7 @@ for url in "${URLS[@]}"; do
   case $abi in *x32) qsuf=native ;; esac   # x32 runs on an x86_64 kernel built with x32 support
   [[ $abi == *abin32 ]] && case $arch in mips64) qsuf=mipsn32 ;; mips64el) qsuf=mipsn32el ;; esac
 
-  RUNNER=(); unset QEMU_LD_PREFIX
+  RUNNER=(); binfmt_restore
   if [[ $qsuf != native ]]; then
     q="qemu-$qsuf"; command -v "$q" >/dev/null || q="qemu-$qsuf-static"
     command -v "$q" >/dev/null || { log "SKIP  [$CUR] qemu-$qsuf not installed"; ((skip++)); continue; }
@@ -536,8 +551,10 @@ for url in "${URLS[@]}"; do
         log "SKIP  [$CUR] dynamic glibc build, sysroot ${sr:-none known} missing; ${PKG[$arch-$abi]:+try: sudo apt install ${PKG[$arch-$abi]}}"
         ((skip++)); [[ $KEEP_EXTRACTED == 1 ]] || rm -rf "$dir"; continue
       fi
-      # QEMU_LD_PREFIX, unlike -L, also reaches the cc1/ld.lld children clang starts through binfmt
-      RUNNER+=(-L "$sr"); export QEMU_LD_PREFIX="$sr"
+      RUNNER+=(-L "$sr")
+      # qemu passes neither -L nor QEMU_LD_PREFIX on to the cc1/ld.lld children clang starts, so
+      # BINFMT_WRAP=1 (needs root or sudo) points this arch's binfmt handler at a wrapper adding -L
+      [[ ${BINFMT_WRAP:-0} == 1 ]] && binfmt_wrap "$qsuf" "$sr"
     fi
   fi
 
@@ -545,7 +562,7 @@ for url in "${URLS[@]}"; do
   if [[ $qsuf == native && ( $HOST_OS != linux || $abi == *x32 ) ]]; then
     probe=$(find "$dir" -type f -name 'llvm-cxxfilt' 2>/dev/null | head -n1)
     pout=$(timeout "$TIMEOUT" "$probe" _Z3foov 2>&1); prc=$?
-    if [[ $prc -eq 126 || $prc -eq 127 ]] || grep -qiE 'exec format|cannot execute|bad cpu type|not supported|syntax error' <<<"$pout"; then
+    if [[ $prc -eq 126 || $prc -eq 127 ]] || [[ $HOST_OS == darwin && $arch == arm64e && $prc -eq 137 ]] || grep -qiE 'exec format|cannot execute|bad cpu type|not supported|syntax error' <<<"$pout"; then
       log "SKIP  [$CUR] this $(uname -sm) machine cannot execute it (rc=$prc): $(tr '\n' ' ' <<<"$pout" | cut -c1-120)"; ((skip++))
       [[ $KEEP_EXTRACTED == 1 ]] || rm -rf "$dir"; [[ $PRUNE_ARCHIVES == 1 ]] && rm -f "$WORK/dl/$file"; continue
     fi

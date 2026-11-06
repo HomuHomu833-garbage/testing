@@ -10,7 +10,16 @@ case "$(uname -s)" in
              r=$(freebsd-version -u | sed 's/-p[0-9]*$//')
              curl -fsSL "https://download.freebsd.org/releases/amd64/$r/lib32.txz" | sudo tar -xpf - -C /
            fi ;;
-  NetBSD)  sudo pkgin -y install bash curl python311 unzip coreutils gtar xz || sudo pkgin -y install bash curl python312 unzip coreutils gtar xz ;;
+  NetBSD)  sudo pkgin -y install bash curl python311 unzip coreutils gtar xz || sudo pkgin -y install bash curl python312 unzip coreutils gtar xz
+           # 32-bit compat for x86 builds: kernel module and the base32 set
+           if [ "$(uname -m)" = amd64 ]; then
+             sudo modload compat_netbsd32 2>/dev/null || true
+             if [ ! -e /usr/lib/i386/libc.so ]; then
+               r=$(uname -r)
+               curl -fsSL "https://cdn.netbsd.org/pub/NetBSD/NetBSD-$r/amd64/binary/sets/base32.tar.xz" | sudo tar -xJpf - -C / \
+                 || curl -fsSL "https://cdn.netbsd.org/pub/NetBSD/NetBSD-$r/amd64/binary/sets/base32.tgz" | sudo tar -xzpf - -C /
+             fi
+           fi ;;
   OpenBSD) sudo pkg_add -I bash curl python%3 unzip-- coreutils gtar-- xz ;;
 esac
 for d in /usr/local/bin /usr/pkg/bin; do

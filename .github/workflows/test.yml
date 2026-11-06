@@ -121,6 +121,7 @@ jobs:
           T: ${{ matrix.h.triple }}
           WORK: ${{ runner.temp }}/w
           PRUNE_ARCHIVES: "1"
+          BINFMT_WRAP: "1"
         run: ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar"
       - name: Report
         if: always()
@@ -269,7 +270,6 @@ jobs:
           memory: 8G
           cpu_count: 4
           environment_variables: REPO REL T HOST_OS PRUNE_ARCHIVES
-          shutdown_vm: true
           run: |
             sh ./scripts/bsd-setup.sh
             export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
