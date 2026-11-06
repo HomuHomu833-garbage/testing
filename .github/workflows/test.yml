@@ -77,7 +77,12 @@ jobs:
           sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils unzip python3 \
             libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
             libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
-            libc6-mips64-cross libc6-mips64el-cross || true
+            libc6-mips64-cross libc6-mips64el-cross
+          mountpoint -q /proc/sys/fs/binfmt_misc || sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          for f in /usr/lib/binfmt.d/qemu-*.conf; do
+            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] || sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register"
+          done
+          ls /proc/sys/fs/binfmt_misc
       - name: Test
         env:
           REPO: ${{ inputs.source }}
