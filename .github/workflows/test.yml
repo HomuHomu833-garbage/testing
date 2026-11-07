@@ -98,7 +98,7 @@ jobs:
                    libc6-mips64-cross libc6-mips64el-cross; do sudo apt-get install -yq "$p" >/dev/null 2>&1 || echo "no $p"; done
           # Ubuntu's qemu 8.2 gets AT_PHDR wrong when the first PT_LOAD is not the one holding
           # the headers (zig's sparc64 linker does that): use Debian trixie's static qemu 10.
-          v=$(curl -fsSL --retry 5 -o /tmp/pk.xz https://deb.debian.org/debian/dists/trixie/main/binary-amd64/Packages.xz \
+          v=$(curl -fsSL --retry 5 -o /tmp/pk.xz https://deb.debian.org/debian/dists/trixie/main/binary-$(dpkg --print-architecture)/Packages.xz \
               && xz -dc /tmp/pk.xz | awk '/^Package: qemu-user$/{p=1} p&&/^Filename:/{print $2; exit}')
           curl -fsSL --retry 5 -o /tmp/qu.deb "https://deb.debian.org/debian/$v" && dpkg-deb -x /tmp/qu.deb /tmp/qu \
             && sudo cp -f /tmp/qu/usr/bin/qemu-* /usr/bin/ && qemu-sparc64 --version | head -1

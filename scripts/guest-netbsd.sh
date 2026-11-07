@@ -13,7 +13,7 @@ case $T in
   riscv64-netbsd-none)   port=riscv-riscv64;    img=riscv64.img; kern=netbsd-GENERIC64;  pk=riscv64
     Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 4 -m 4G); BUS=device ;;
   riscv32-netbsd-none)   port=riscv-riscv32;    img=riscv32.img; kern=netbsd-GENERIC;    pk=""
-    Q=(qemu-system-riscv32 -M virt -smp 4 -m 2G); BUS=device ;;
+    Q=(qemu-system-riscv32 -M virt -smp 4 -m 2G -bios opensbi32.bin); BUS=device ;;
   arm-netbsd-eabihf)     port=evbarm-earmv7hf;  img=armv7.img;   kern=netbsd-GENERIC;    pk=earmv7hf
     Q=(qemu-system-arm -M virt,highmem=off -cpu cortex-a15 -smp 4 -m 3G); BUS=device ;;
   armeb-netbsd-eabihf)   port=evbarm-earmv7hfeb; img=armv7.img;  kern=netbsd-GENERIC;    pk=""
@@ -24,6 +24,9 @@ case $T in
 esac
 cd "$D"
 [ -f "$img" ] || { curl -fsSL "$B/$port/binary/gzimg/$img.gz" | gunzip > "$img"; truncate -s 10G "$img"; }   # root grows on first boot
+# Ubuntu's qemu leaves out the riscv32 OpenSBI firmware: take qemu's own
+[[ $T != riscv32-* || -f opensbi32.bin ]] || curl -fsSL --retry 5 -o opensbi32.bin \
+  "https://raw.githubusercontent.com/qemu/qemu/v$(qemu-system-riscv32 --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)/pc-bios/opensbi-riscv32-generic-fw_dynamic.bin"
 [ -f kernel ] || curl -fsSL "$B/$port/binary/kernel/$kern.gz" | gunzip > kernel
 # everything the guest runs goes in scripts/guest-run.sh: the console takes lines of 255 bytes at most
 rm -rf stage; mkdir -p stage; cp -R "$SRC/scripts" stage/
@@ -52,7 +55,7 @@ truncate -s 40G work.img; rm -f results.img; truncate -s 32M results.img
 
 disk() { echo -drive "file=$1,format=raw,if=none,id=$2" -device "virtio-blk-$BUS,drive=$2"; }
 # shellcheck disable=SC2046
-QEMU=("${Q[@]}" -nographic -kernel kernel -append "root=dk1"
+QEMU=("${Q[@]}" -nographic -no-reboot -kernel kernel -append "root=dk1"
   $(disk "$img" hd0) $(disk scripts.img hd1) $(disk work.img hd2) $(disk results.img hd3)
   -netdev user,id=n0 -device "virtio-net-$BUS,netdev=n0")
 
