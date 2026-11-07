@@ -45,7 +45,7 @@ jobs:
           EXCLUDE: ${{ inputs.exclude }}
         run: |
           tag="llvm-${REL%%[!r0-9]*}"
-          html=$(curl -fsSL "https://github.com/$SRC/releases/expanded_assets/$tag")
+          html=$(curl -fsSL --retry 5 --retry-all-errors "https://github.com/$SRC/releases/expanded_assets/$tag")
           all=$(grep -oE "releases/download/$tag/[A-Za-z0-9_.+%-]+-$REL-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
             | sed -E "s#.*-$REL-##; s#\.tar\.xz\$##" | grep -vE '^(beta|rc)[0-9]+-' | sort -u \
             | grep -E -- "${FILTER:-.}" | { if [ -n "$EXCLUDE" ]; then grep -vE -- "$EXCLUDE"; else cat; fi; } || true)
@@ -287,7 +287,7 @@ jobs:
       - name: Test in the VM
         shell: cpa.sh {0}
         run: |
-          export REPO='${{ inputs.source }}' REL='${{ inputs.release }}' T='${{ matrix.h.triple }}' HOST_OS='${{ matrix.h.os }}' PRUNE_ARCHIVES=1 TIMEOUT=$(case '${{ matrix.h.triple }}' in arm-freebsd*) echo 2700;; *) echo 900;; esac)
+          export REPO='${{ inputs.source }}' REL='${{ inputs.release }}' T='${{ matrix.h.triple }}' HOST_OS='${{ matrix.h.os }}' PRUNE_ARCHIVES=1 TIMEOUT=${{ startsWith(matrix.h.triple, 'arm-freebsd') && '2700' || '900' }}
           sh ./scripts/bsd-setup.sh
           export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
           if command -v python3 >/dev/null && command -v bash >/dev/null; then bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true

@@ -294,6 +294,10 @@ test_ndk() {
     # LLVM 9-14 had no -format=make / "-- <command>" form; Google ships no clang-scan-deps there
     out=$(run "$(l clang-scan-deps)" -format=make -- "$CLANG" -c $TA hello.cpp 2>&1)
     if grep -q 'hello\.o:' <<<"$out"; then pass "clang-scan-deps"
+    elif grep -q 'compilation-database' <<<"$out"; then   # LLVM 15-18: no "-- <command>" form yet
+      printf '[{"directory":"%s","file":"hello.cpp","command":"%s -c %s hello.cpp"}]\n' \
+        "$(winpath "$PWD" | sed 's|\\|/|g')" "$(winpath "$CLANG" | sed 's|\\|/|g')" "$TA" > cdb.json
+      expect "clang-scan-deps" 'hello\.o:' run "$(l clang-scan-deps)" -format=make -compilation-database=cdb.json
     elif grep -q 'Unknown command line argument' <<<"$out"; then
       expect "clang-scan-deps --help" 'USAGE' run "$(l clang-scan-deps)" --help
     else bad "clang-scan-deps" "$out"; fi
