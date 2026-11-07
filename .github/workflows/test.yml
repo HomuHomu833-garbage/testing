@@ -287,7 +287,7 @@ jobs:
       - name: Test in the VM
         shell: cpa.sh {0}
         run: |
-          export REPO='${{ inputs.source }}' REL='${{ inputs.release }}' T='${{ matrix.h.triple }}' HOST_OS='${{ matrix.h.os }}' PRUNE_ARCHIVES=1 TIMEOUT=900
+          export REPO='${{ inputs.source }}' REL='${{ inputs.release }}' T='${{ matrix.h.triple }}' HOST_OS='${{ matrix.h.os }}' PRUNE_ARCHIVES=1 TIMEOUT=$(case '${{ matrix.h.triple }}' in arm-freebsd*) echo 2700;; *) echo 900;; esac)
           sh ./scripts/bsd-setup.sh
           export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w"
           if command -v python3 >/dev/null && command -v bash >/dev/null; then bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true

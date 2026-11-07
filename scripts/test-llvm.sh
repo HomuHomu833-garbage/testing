@@ -293,7 +293,8 @@ test_ndk() {
     have llvm-objcopy && step "llvm-objcopy --strip-debug" run "$(l llvm-objcopy)" --strip-debug h.o h2.o
     have llvm-dwarfdump && expect "llvm-dwarfdump" "DW_TAG_subprogram" run "$(l llvm-dwarfdump)" --name=main h.o
   fi
-  have llvm-cxxfilt && expect "llvm-cxxfilt" 'foo\(\)'      run "$(l llvm-cxxfilt)" _Z3foov
+  # newer llvm-cxxfilt on Mach-O hosts strips a leading underscore first: give both spellings
+  have llvm-cxxfilt && expect "llvm-cxxfilt" 'foo\(\)'      run "$(l llvm-cxxfilt)" _Z3foov __Z3foov
   if ((SPAWN)) && have llvm-as llvm-dis llvm-link && step "clang -emit-llvm" run "$CLANG" $TA -S -emit-llvm hello.c -o h.ll; then
     step "llvm-as"                    run "$(l llvm-as)" h.ll -o h.bc
     step "llvm-dis"                   run "$(l llvm-dis)" h.bc -o h2.ll
@@ -317,6 +318,9 @@ test_ndk() {
     # LLVM 9-14 had no -format=make / "-- <command>" form; Google ships no clang-scan-deps there
     out=$(run "$(l clang-scan-deps)" -format=make -- "$CLANG" -c $TA hello.cpp 2>&1)
     if grep -q 'hello\.o:' <<<"$out"; then pass "clang-scan-deps"
+    elif grep -q 'compilation-database' <<<"$out"; then   # LLVM 15-18: no "-- <command>" form yet
+      printf '[{"directory":"%s","file":"hello.cpp","command":"%s -c %s hello.cpp"}]\n' "$PWD" "$CLANG" "$TA" > cdb.json
+      expect "clang-scan-deps" 'hello\.o:' run "$(l clang-scan-deps)" -format=make -compilation-database=cdb.json
     elif grep -q 'Unknown command line argument' <<<"$out"; then
       expect "clang-scan-deps --help" 'USAGE' run "$(l clang-scan-deps)" --help
     else bad "clang-scan-deps" "$out"; fi

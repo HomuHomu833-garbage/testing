@@ -44,7 +44,7 @@ printf 'int  main( ){return 0;}' > fmt.c
 
 expect "clang --version" "clang version" "$L/clang" --version
 expect "ld.lld --version" "LLD" "$L/ld.lld" --version
-expect "llvm-cxxfilt" 'foo\(\)' "$L/llvm-cxxfilt" _Z3foov
+expect "llvm-cxxfilt" 'foo\(\)' "$L/llvm-cxxfilt" _Z3foov __Z3foov
 expect "clang-format" 'int main\(\) \{ return 0; \}' "$L/clang-format" fmt.c
 SR="$PWD/../$TC/sysroot/usr/lib"
 for t in aarch64-linux-android:30 armv7a-linux-androideabi:29 i686-linux-android:21 x86_64-linux-android:21; do
