@@ -9,14 +9,18 @@ REL=$1 T=$2 V=${NBVER:-11.0}
 D="${RUNNER_TEMP:-/tmp}/nbguest"; mkdir -p "$D"
 SRC="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 B="https://cdn.netbsd.org/pub/NetBSD/NetBSD-$V"
+# qemu's virt boards have no firmware NetBSD can take the root disk from: name it. The armv7
+# ELF kernel loads below RAM (qemu then grows without bound), so those boot the u-boot image;
+# their virtio disks attach as ld4.. in reverse order, the image (first of 4) as ld7.
+root=dk1
 case $T in
   riscv64-netbsd-none)   port=riscv-riscv64;    img=riscv64.img; kern=netbsd-GENERIC64;  pk=riscv64
     Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 4 -m 4G); BUS=device ;;
   riscv32-netbsd-none)   port=riscv-riscv32;    img=riscv32.img; kern=netbsd-GENERIC;    pk=""
     Q=(qemu-system-riscv32 -M virt -smp 4 -m 2G -bios opensbi32.bin); BUS=device ;;
-  arm-netbsd-eabihf)     port=evbarm-earmv7hf;  img=armv7.img;   kern=netbsd-GENERIC;    pk=earmv7hf
+  arm-netbsd-eabihf)     port=evbarm-earmv7hf;  img=armv7.img;   kern=netbsd-GENERIC.ub; root=ld7a;    pk=earmv7hf
     Q=(qemu-system-arm -M virt,highmem=off -cpu cortex-a15 -smp 4 -m 3G); BUS=device ;;
-  armeb-netbsd-eabihf)   port=evbarm-earmv7hfeb; img=armv7.img;  kern=netbsd-GENERIC;    pk=""
+  armeb-netbsd-eabihf)   port=evbarm-earmv7hfeb; img=armv7.img;  kern=netbsd-GENERIC.ub; root=ld7a;    pk=""
     Q=(qemu-system-arm -M virt,highmem=off -cpu cortex-a15 -smp 4 -m 3G); BUS=device ;;
   aarch64_be-netbsd-none) port=evbarm-aarch64eb; img=arm64.img;  kern=netbsd-GENERIC64.img; pk=aarch64eb
     Q=(qemu-system-aarch64 -M virt -cpu cortex-a57 -smp 4 -m 4G); BUS=device ;;
@@ -37,7 +41,9 @@ rm -rf stage; mkdir -p stage; cp -R "$SRC/scripts" stage/
   echo 'newfs -I /dev/r${WD}$R >/dev/null && mkdir -p /w && mount -o async /dev/${WD}$R /w || exit 1'
   echo 'dhcpcd -w -q 2>/dev/null; ifconfig -a | grep "inet "'
   if [ -n "$pk" ]; then
-    echo "PKG_PATH=http://cdn.netbsd.org/pub/pkgsrc/packages/NetBSD/$pk/$V/All; export PKG_PATH"
+    # the CDN redirects to the current quarterly branch and pkg_add does not follow it
+    pu=$(curl -fsSL --retry 5 -o /dev/null -w '%{url_effective}' "https://cdn.netbsd.org/pub/pkgsrc/packages/NetBSD/$pk/$V/All/")
+    echo "PKG_PATH=${pu/https:/http:}; export PKG_PATH"
     echo 'grep -q nameserver /etc/resolv.conf 2>/dev/null || echo nameserver 10.0.2.3 > /etc/resolv.conf'
     echo 'for x in bash curl unzip coreutils gtar xz mozilla-rootcerts python311; do pkg_add $x 2>&1 | tail -2; done'
     echo 'mozilla-rootcerts install >/dev/null 2>&1; pkg_info | cut -c1-40'
@@ -55,7 +61,7 @@ truncate -s 40G work.img; rm -f results.img; truncate -s 32M results.img
 
 disk() { echo -drive "file=$1,format=raw,if=none,id=$2" -device "virtio-blk-$BUS,drive=$2"; }
 # shellcheck disable=SC2046
-QEMU=("${Q[@]}" -nographic -no-reboot -kernel kernel -append "root=dk1"
+QEMU=("${Q[@]}" -nographic -no-reboot -kernel kernel -append "root=$root"
   $(disk "$img" hd0) $(disk scripts.img hd1) $(disk work.img hd2) $(disk results.img hd3)
   -netdev user,id=n0 -device "virtio-net-$BUS,netdev=n0")
 

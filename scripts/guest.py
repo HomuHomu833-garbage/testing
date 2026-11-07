@@ -17,6 +17,14 @@ boot_to = int(os.environ.get("BOOT_TIMEOUT", "3600"))
 cmd_to = int(os.environ.get("CMD_TIMEOUT", "21600"))
 PS = "GUESTPS> "
 
+def sh(cmd, to):
+    p.sendline(cmd + "; echo GUESTRC=$?")
+    p.expect(r"GUESTRC=(\d+)", timeout=to)
+    rc = int(p.match.group(1))
+    p.expect_exact(PS, timeout=60)
+    return rc
+
+
 def boot():
     q = pexpect.spawn(qemu[0], qemu[1:], encoding="utf-8", codec_errors="replace", timeout=boot_to)
     q.logfile_read = open(log, "a")
@@ -46,7 +54,8 @@ if i == 0:
     p.sendline("")
     p.expect(r"[#%>$] ?$", timeout=300)
 p.sendline("exec /bin/sh")
-p.sendline(f"PS1='{PS}'; export PS1; stty -echo 2>/dev/null; TERM=dumb; export TERM")
+# split so the echoed command line itself never matches the prompt
+p.sendline(f"PS1='{PS[:5]}''{PS[5:]}'; export PS1; stty -echo 2>/dev/null; TERM=dumb; export TERM")
 p.expect_exact(PS, timeout=120)
 
 rc = 0
