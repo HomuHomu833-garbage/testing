@@ -520,7 +520,7 @@ binfmt_restore() {
 trap binfmt_restore EXIT
 
 echo "==> Looking up $HOST_OS LLVM assets for $REPO @ $TAG (release $VER)"
-html=$(curl -fsSL "https://github.com/$REPO/releases/expanded_assets/$TAG") || { echo "release $TAG not found"; exit 1; }
+html=$(curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 "https://github.com/$REPO/releases/expanded_assets/$TAG") || { echo "release $TAG not found"; exit 1; }
 mapfile -t URLS < <(grep -oE "releases/download/$TAG/[A-Za-z0-9_.+%-]+-$VER-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
   | grep -vE -- "-$VER-(beta|rc)[0-9]+-" | grep -E -- "$HOST_PAT" | grep -- "$FILTER" | grep -vE -- "${EXCLUDE:-^$}" \
   | sort -u | sed "s#^#https://github.com/$REPO/#")

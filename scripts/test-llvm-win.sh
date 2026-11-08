@@ -478,7 +478,7 @@ if [[ $OFFICIAL == 1 ]]; then
 fi
 
 echo "==> Looking up Windows LLVM assets for $REPO @ $TAG (release $VER), arches: $WIN_ARCHES"
-html=$(curl -fsSL "https://github.com/$REPO/releases/expanded_assets/$TAG") || { echo "release $TAG not found"; exit 1; }
+html=$(curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 "https://github.com/$REPO/releases/expanded_assets/$TAG") || { echo "release $TAG not found"; exit 1; }
 mapfile -t URLS < <(grep -oE "releases/download/$TAG/[A-Za-z0-9_.+%-]+-$VER-[A-Za-z0-9_]+-w64-mingw32\.tar\.xz" <<<"$html" \
   | grep -vE -- "-$VER-(beta|rc)[0-9]+-" | grep -- "$FILTER" | grep -vE -- "${EXCLUDE:-^$}" | sort -u | sed "s#^#https://github.com/$REPO/#")
 [[ ${#URLS[@]} -gt 0 ]] || { echo "No matching Windows assets found."; exit 1; }

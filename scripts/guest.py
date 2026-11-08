@@ -54,9 +54,19 @@ if i == 0:
     p.sendline("")
     p.expect(r"[#%>$] ?$", timeout=300)
 p.sendline("exec /bin/sh")
-# split so the echoed command line itself never matches the prompt
-p.sendline(f"PS1='{PS[:5]}''{PS[5:]}'; export PS1; stty -echo 2>/dev/null; TERM=dumb; export TERM")
-p.expect_exact(PS, timeout=120)
+# lines typed before the new shell is up can go to the login shell: repeat until the prompt shows
+for _ in range(5):
+    # split so the echoed command line itself never matches the prompt
+    p.sendline(f"PS1='{PS[:5]}''{PS[5:]}'; export PS1; stty -echo 2>/dev/null; TERM=dumb; export TERM")
+    try:
+        p.expect_exact(PS, timeout=60)
+        break
+    except pexpect.TIMEOUT:
+        pass
+else:
+    sys.exit("no shell prompt from the guest")
+p.sendline("true")
+p.expect_exact(PS, timeout=60)
 
 rc = 0
 with open(cmds) as f:
