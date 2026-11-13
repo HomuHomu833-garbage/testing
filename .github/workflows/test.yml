@@ -48,7 +48,8 @@ jobs:
           html=$(curl -fsSL --retry 5 --retry-all-errors "https://github.com/$SRC/releases/expanded_assets/$tag")
           all=$(grep -oE "releases/download/$tag/[A-Za-z0-9_.+%-]+-$REL-[A-Za-z0-9_.-]+\.tar\.xz" <<<"$html" \
             | sed -E "s#.*-$REL-##; s#\.tar\.xz\$##" | grep -vE '^(beta|rc)[0-9]+-' | sort -u \
-            | grep -E -- "${FILTER:-.}" | { if [ -n "$EXCLUDE" ]; then grep -vE -- "$EXCLUDE"; else cat; fi; } || true)
+            | grep -E -- "${FILTER:-.}" | { if [ -n "$EXCLUDE" ]; then grep -vE -- "$EXCLUDE"; else cat; fi; } \
+            | { case "$FILTER" in *abin32*) cat ;; *) grep -vE 'abin32$' ;; esac; } || true)   # n32 hosts are broken (dropped from the builds): only when asked for by name
           pick() { grep -E -- "$1" <<<"$all" || true; }
           j() { jq -cnR '[inputs | select(length>0)]'; }
           # Linux and Android hosts: aarch64 on arm runners (native), the rest on x86_64 (native or qemu)
