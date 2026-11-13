@@ -41,11 +41,13 @@ scp -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -
 rc=0
 "${S[@]}" "cd scripts && REPO='$REPO' PRUNE_ARCHIVES=1 WORK=\$HOME/w ./test-llvm.sh '$REL' '-$REL-$T.tar'" || rc=$?
 if [ "$rc" != 0 ]; then
-  "${S[@]}" 'bash -s' <<'DIAG' || true
+  "${S[@]}" "REPO='$REPO' bash -s" <<'DIAG' || true
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq gdb >/dev/null 2>&1
-b=; for f in $(find ~/w -name lld -type f); do file "$f" | grep -q 'ELF 32-bit' && b=$(dirname "$f") && break; done; echo "bin=$b"
+mkdir -p ~/dg && cd ~/dg
+curl -fsSL -o a.tar.xz "https://github.com/$REPO/releases/download/llvm-r30/bolt%2Bclang%2Bclang-tools-extra%2Blld%2Bpolly-r30-x86_64-linux-gnux32.tar.xz" && tar xf a.tar.xz
+b=$(dirname "$(find ~/dg -name lld -type f | head -1)"); echo "bin=$b"
 cd "$(mktemp -d)"; echo 'int main(){return 0;}' > t.c
-file "$b/lld" "$b/clang-21" 2>/dev/null | cut -c1-200
+file "$b/lld" | cut -c1-200
 N=$(find ~/w/base -path '*prebuilt/linux-x86_64/sysroot' | head -1); echo "ndk sysroot=$N"
 "$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static -save-temps -c t.c -o t.o 2>&1 | tail -2
 "$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static -### t.o 2>&1 | tail -1 > cmd
