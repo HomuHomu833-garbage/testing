@@ -26,6 +26,14 @@ case $T in
     Q=(qemu-system-aarch64 -M virt -cpu cortex-a57 -smp 4 -m 4G); BUS=device ;;
   *) echo "no NetBSD guest for $T"; exit 2 ;;
 esac
+# NetBSD 11.0's riscv32 GENERIC kernel (a DIAGNOSTIC build) asserts "msgbufaddr != 0" in init_riscv
+# at boot under qemu-system-riscv32 (8.2) whatever the RAM size or machine options: no guest to test in
+if [[ $T == riscv32-* ]]; then
+  mkdir -p "${RUNNER_TEMP:-/tmp}/w"
+  echo "SKIP  [$REL-$T] no guest: NetBSD 11.0's riscv32 kernel panics at boot (msgbufaddr assertion in init_riscv)" \
+    | tee "${RUNNER_TEMP:-/tmp}/w/results-$REL.txt"
+  exit 0
+fi
 cd "$D"
 dl() { curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 -o "$2.gz" "$1" && gunzip -f "$2.gz"; }
 [ -f "$img" ] || { dl "$B/$port/binary/gzimg/$img.gz" "$img" && truncate -s 10G "$img"; }   # root grows on first boot
