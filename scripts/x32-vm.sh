@@ -49,6 +49,8 @@ b=$(dirname "$(find ~/dg -name lld -type f | head -1)"); echo "bin=$b"
 cd "$(mktemp -d)"; echo 'int main(){return 0;}' > t.c
 file "$b/lld" | cut -c1-200
 N=$(find ~/w/base -path '*prebuilt/linux-x86_64/sysroot' | head -1); echo "ndk sysroot=$N"
+g=$(ls -d "$(dirname "$N")"/lib/clang/*/ | head -1); v=$(basename "$(ls -d "$b"/../lib/clang/*/ | head -1)")
+mkdir -p "$b/../lib/clang/$v/lib"; (cd "$g/lib" && tar -cf - .) | (cd "$b/../lib/clang/$v/lib" && tar -xkf - 2>/dev/null)
 "$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static -save-temps -c t.c -o t.o 2>&1 | tail -2
 "$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static -### t.o 2>&1 | tail -1 > cmd
 for th in default 1; do
