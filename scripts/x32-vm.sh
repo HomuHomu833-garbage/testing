@@ -58,7 +58,7 @@ for th in default 1; do
   "$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static $extra t.c -o t 2>&1 | head -3; echo "rc=${PIPESTATUS[0]}"
 done
 eval "set -- $(sed 's/^ *//' cmd)"; echo "link cmd: $*" | cut -c1-400
-gdb -batch -ex run -ex bt -ex 'info registers rip rsp' --args "$@" 2>&1 | tail -25
+gdb -batch -ex run -ex 'x/4i $pc' -ex 'info registers' -ex 'p $_siginfo._sifields._sigfault.si_addr' -ex 'p/x $fs_base' -ex 'x/6wx $fs_base' -ex 'info proc mappings' --args "$@" 2>&1 | tail -90
 DIAG
 fi
 mkdir -p "${RUNNER_TEMP:-/tmp}/w"
