@@ -43,13 +43,15 @@ rc=0
 if [ "$rc" != 0 ]; then
   "${S[@]}" 'bash -s' <<'DIAG' || true
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq gdb >/dev/null 2>&1
-b=$(dirname "$(find ~/w -path '*prebuilt/linux-x86_64/bin/ld.lld' | head -1)"); echo "bin=$b"
+b=; for f in $(find ~/w -name lld -type f); do file "$f" | grep -q 'ELF 32-bit' && b=$(dirname "$f") && break; done; echo "bin=$b"
 cd "$(mktemp -d)"; echo 'int main(){return 0;}' > t.c
 file "$b/lld" "$b/clang-21" 2>/dev/null | cut -c1-200
-"$b/clang" --target=x86_64-linux-android21 -static -### t.c 2>&1 | tail -1 > cmd
+N=$(find ~/w/base -path '*prebuilt/linux-x86_64/sysroot' | head -1); echo "ndk sysroot=$N"
+"$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static -save-temps -c t.c -o t.o 2>&1 | tail -2
+"$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static -### t.o 2>&1 | tail -1 > cmd
 for th in default 1; do
   echo "== threads=$th"; extra=; [ $th = 1 ] && extra=-Wl,--threads=1
-  "$b/clang" --target=x86_64-linux-android21 -static $extra t.c -o t 2>&1 | head -3; echo "rc=$?"
+  "$b/clang" --target=x86_64-linux-android21 --sysroot="$N" -static $extra t.c -o t 2>&1 | head -3; echo "rc=${PIPESTATUS[0]}"
 done
 eval "set -- $(sed 's/^ *//' cmd)"; echo "link cmd: $*" | cut -c1-400
 gdb -batch -ex run -ex bt -ex 'info registers rip rsp' --args "$@" 2>&1 | tail -25
