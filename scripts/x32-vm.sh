@@ -40,6 +40,21 @@ done
 scp -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -r "$GITHUB_WORKSPACE/scripts" t@localhost:
 rc=0
 "${S[@]}" "cd scripts && REPO='$REPO' PRUNE_ARCHIVES=1 WORK=\$HOME/w ./test-llvm.sh '$REL' '-$REL-$T.tar'" || rc=$?
+if [ "$rc" != 0 ]; then
+  "${S[@]}" 'bash -s' <<'DIAG' || true
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq gdb >/dev/null 2>&1
+b=$(dirname "$(find ~/w -path '*prebuilt/linux-x86_64/bin/ld.lld' | head -1)"); echo "bin=$b"
+cd "$(mktemp -d)"; echo 'int main(){return 0;}' > t.c
+file "$b/lld" "$b/clang-21" 2>/dev/null | cut -c1-200
+"$b/clang" --target=x86_64-linux-android21 -static -### t.c 2>&1 | tail -1 > cmd
+for th in default 1; do
+  echo "== threads=$th"; extra=; [ $th = 1 ] && extra=-Wl,--threads=1
+  "$b/clang" --target=x86_64-linux-android21 -static $extra t.c -o t 2>&1 | head -3; echo "rc=$?"
+done
+eval "set -- $(sed 's/^ *//' cmd)"; echo "link cmd: $*" | cut -c1-400
+gdb -batch -ex run -ex bt -ex 'info registers rip rsp' --args "$@" 2>&1 | tail -25
+DIAG
+fi
 mkdir -p "${RUNNER_TEMP:-/tmp}/w"
 scp -i key -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR 't@localhost:w/results-*.txt' "${RUNNER_TEMP:-/tmp}/w/" || true
 kill "$(cat qemu.pid)" 2>/dev/null || true
