@@ -27,11 +27,12 @@ case $T in
   *) echo "no NetBSD guest for $T"; exit 2 ;;
 esac
 cd "$D"
-[ -f "$img" ] || { curl -fsSL "$B/$port/binary/gzimg/$img.gz" | gunzip > "$img"; truncate -s 10G "$img"; }   # root grows on first boot
+dl() { curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 -o "$2.gz" "$1" && gunzip -f "$2.gz"; }
+[ -f "$img" ] || { dl "$B/$port/binary/gzimg/$img.gz" "$img" && truncate -s 10G "$img"; }   # root grows on first boot
 # Ubuntu's qemu leaves out the riscv32 OpenSBI firmware: take qemu's own
 [[ $T != riscv32-* || -f opensbi32.bin ]] || curl -fsSL --retry 5 -o opensbi32.bin \
   "https://raw.githubusercontent.com/qemu/qemu/v$(qemu-system-riscv32 --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)/pc-bios/opensbi-riscv32-generic-fw_dynamic.bin"
-[ -f kernel ] || curl -fsSL "$B/$port/binary/kernel/$kern.gz" | gunzip > kernel
+[ -f kernel ] || dl "$B/$port/binary/kernel/$kern.gz" kernel
 # everything the guest runs goes in scripts/guest-run.sh: the console takes lines of 255 bytes at most
 rm -rf stage; mkdir -p stage; cp -R "$SRC/scripts" stage/
 {

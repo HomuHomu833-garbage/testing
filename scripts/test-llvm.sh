@@ -317,6 +317,13 @@ test_ndk() {
   if have clang-scan-deps; then
     # LLVM 9-14 had no -format=make / "-- <command>" form; Google ships no clang-scan-deps there
     out=$(run "$(l clang-scan-deps)" -format=make -- "$CLANG" -c $TA hello.cpp 2>&1)
+    if ! grep -q 'hello\.o:' <<<"$out" && grep -q 'Error while scanning' <<<"$out"; then
+      trd=$(run "$CLANG" -print-resource-dir 2>/dev/null)
+      out2=$([[ -n $trd ]] && run "$(l clang-scan-deps)" -format=make -- "$CLANG" -c $TA -resource-dir "$trd" hello.cpp 2>&1)
+      if grep -q 'hello\.o:' <<<"$out2"; then
+        out=$out2; note "clang-scan-deps only works with an explicit -resource-dir on this host (it cannot locate its own executable)"
+      fi
+    fi
     if grep -q 'hello\.o:' <<<"$out"; then pass "clang-scan-deps"
     elif grep -q 'Unknown command line argument' <<<"$out"; then
       expect "clang-scan-deps --help" 'USAGE' run "$(l clang-scan-deps)" --help

@@ -235,6 +235,9 @@ test_ndk() {
     local api=${T_API[$a]} top
     top=$(ls "$NDK"/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/"${T_LIBDIR[$a]}" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -n1)
     [[ -n $top && $top -lt $api ]] && { info "[$a] sysroot tops out at API $top, using it instead of $api"; api=$top; }
+    if ! compgen -G "$NDK/toolchains/llvm/prebuilt/*/sysroot/usr/lib/${T_LIBDIR[$a]}/$api/crtbegin_static.o" >/dev/null; then
+      info "[$a] no API $api crt objects for ${T_TRIPLE[$a]} in this NDK, target skipped"; continue
+    fi
     tgt="--target=${T_TRIPLE[$a]}$api"; L="${T_LONG[$a]}"
     target_runner "$a" && runnable=1 || runnable=0
 
