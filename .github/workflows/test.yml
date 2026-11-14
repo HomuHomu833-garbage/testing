@@ -294,6 +294,7 @@ jobs:
           if command -v python3 >/dev/null && command -v bash >/dev/null; then bash ./scripts/test-llvm.sh "$REL" "-$REL-$T.tar" || true
           else echo "no python3/bash packages for this port: sh-only smoke test"; sh ./scripts/guest-smoke.sh "$REL" "$T" || true; fi
           cp "$HOME"/w/results-*.txt ./bsd-results.txt 2>/dev/null || true
+          case "$T" in x86-netbsd-*) grep -q '^FAIL' ./bsd-results.txt 2>/dev/null && bash ./scripts/bsd-diag.sh || true ;; esac
       - name: Report
         if: always()
         run: |
