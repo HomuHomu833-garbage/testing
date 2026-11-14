@@ -8,6 +8,7 @@ Exits with the status of the last command run.
 Env: BOOT_TIMEOUT (s, default 3600), CMD_TIMEOUT (s, default 21600)."""
 import os
 import re
+import time
 import sys
 
 import pexpect
@@ -46,6 +47,10 @@ for attempt in range(4):
         p.sendline("fsck -y / ; reboot")
         p.expect([pexpect.EOF, r"db\{\d+\}> "], timeout=boot_to)
     p.terminate(force=True)
+    # the next qemu cannot lock the disk image until this one has exited
+    while p.isalive():
+        p.terminate(force=True)
+        time.sleep(1)
 else:
     sys.exit("guest never reached a login prompt")
 p.sendline("root")
