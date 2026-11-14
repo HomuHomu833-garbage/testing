@@ -12,4 +12,7 @@ for t in riscv64-linux-android37 aarch64-linux-android29 x86_64-linux-android21;
 done
 sudo pkgin -y install gdb >/dev/null 2>&1
 f=$(ls "$b"/clang-[0-9]* | head -1)
-command -v gdb && gdb -batch -ex run -ex 'bt 30' -ex 'x/4i $pc' -ex 'info registers' --args "$f" --target=riscv64-linux-android37 -### -c -x c /dev/null -o /dev/null 2>&1 | tail -60
+N=$(find "$HOME/w/base" -type d -path '*prebuilt/linux-x86_64/sysroot' 2>/dev/null | head -1); echo "ndk sysroot=$N"
+echo 'int main(){return 0;}' > t.c
+for a in "-###" "-c" ""; do echo "== sysroot $a"; "$b/clang" --target=riscv64-linux-android37 --sysroot="$N" -static $a t.c -o t 2>&1 | tail -4; echo "rc=${PIPESTATUS[0]}"; done
+command -v gdb && gdb -batch -ex run -ex 'bt 40' -ex 'x/4i $pc' -ex 'info registers' --args "$f" --target=riscv64-linux-android37 --sysroot="$N" -static t.c -o t 2>&1 | tail -70
