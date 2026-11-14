@@ -258,8 +258,11 @@ test_ndk() {
     if step "[$a] compile+link C++ (static, libc++)" run "$CLANGXX" $tgt -O2 -static hello.cpp -o "cpp_$a"; then
       ((runnable)) && expect "[$a] run C++ binary (exceptions, STL)" "caught boom 10" trun "./cpp_$a"
     fi
-    if step "[$a] compile+link C with ThinLTO" run "$CLANG" $tgt -O2 -flto=thin -static hello.c -o "lto_$a"; then
+    # a hung ThinLTO link (r21 arm-freebsd) would otherwise burn the whole TIMEOUT per target
+    if TIMEOUT=$((TIMEOUT < 600 ? TIMEOUT : 600)) step "[$a] compile+link C with ThinLTO" run "$CLANG" $tgt -O2 -flto=thin -static hello.c -o "lto_$a"; then
       ((runnable)) && expect "[$a] run ThinLTO binary" "hello 42-ok" trun "./lto_$a"
+    elif [[ ! -e "lto_$a" ]] && TIMEOUT=600 run "$CLANG" $tgt -O2 -flto=thin -static -Wl,--thinlto-jobs=1 hello.c -o "lto_$a" >/dev/null 2>&1; then
+      note "[$a] ThinLTO links with -Wl,--thinlto-jobs=1 (the threaded backend fails or hangs)"
     fi
     if step "[$a] link shared lib" run "$CLANG" $tgt -shared -fPIC -O2 lib.c -o "lib_$a.so"; then
       expect "[$a] shared lib machine type" "${T_MACH[$a]}" rdelf -h "lib_$a.so"
