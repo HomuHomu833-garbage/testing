@@ -70,8 +70,16 @@ for _ in range(5):
         pass
 else:
     sys.exit("no shell prompt from the guest")
-p.sendline("true")
-p.expect_exact(PS, timeout=60)
+# a busy TCG guest can take minutes to answer the first command
+for _ in range(10):
+    p.sendline("true")
+    try:
+        p.expect_exact(PS, timeout=60)
+        break
+    except pexpect.TIMEOUT:
+        pass
+else:
+    sys.exit("the guest shell stopped answering")
 
 rc = 0
 with open(cmds) as f:
