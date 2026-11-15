@@ -15,7 +15,7 @@ B="https://cdn.netbsd.org/pub/NetBSD/NetBSD-$V"
 root=dk1
 case $T in
   riscv64-netbsd-none)   port=riscv-riscv64;    img=riscv64.img; kern=netbsd-GENERIC64;  pk=riscv64
-    Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 4 -m 4G); BUS=device ;;
+    Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 2 -m 4G); BUS=device ;;
   riscv32-netbsd-none)   port=riscv-riscv32;    img=riscv32.img; kern=netbsd-GENERIC;    pk=""
     Q=(qemu-system-riscv32 -M virt -smp 4 -m 2G -bios opensbi32.bin); BUS=device ;;
   arm-netbsd-eabihf)     port=evbarm-earmv7hf;  img=armv7.img;   kern=netbsd-GENERIC.ub; root=ld7a;    pk=earmv7hf
@@ -81,7 +81,7 @@ mkdir -p /t && tar -xf /dev/r$S$R -C /t
 sh -x /t/scripts/guest-run.sh 2>&1 | tail -n 40
 EOF
 rc=0
-BOOT_TIMEOUT=5400 CMD_TIMEOUT=3600 python3 "$SRC/scripts/guest.py" console.log cmds -- "${QEMU[@]}" || rc=$?
+BOOT_TIMEOUT=5400 CMD_TIMEOUT=7200 python3 "$SRC/scripts/guest.py" console.log cmds -- "${QEMU[@]}" || rc=$?
 mkdir -p "${RUNNER_TEMP:-/tmp}/w"
 tar -xf results.img -C "${RUNNER_TEMP:-/tmp}/w" 2>/dev/null || echo "no results came back from the guest"
 tail -n 30 console.log | tr -d '\r'
