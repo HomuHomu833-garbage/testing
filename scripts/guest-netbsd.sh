@@ -15,7 +15,7 @@ B="https://cdn.netbsd.org/pub/NetBSD/NetBSD-$V"
 root=dk1
 case $T in
   riscv64-netbsd-none)   port=riscv-riscv64;    img=riscv64.img; kern=netbsd-GENERIC64;  pk=riscv64
-    Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 2 -m 4G); BUS=device ;;
+    Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 4 -m 4G); BUS=device ;;
   riscv32-netbsd-none)   port=riscv-riscv32;    img=riscv32.img; kern=netbsd-GENERIC;    pk=""
     Q=(qemu-system-riscv32 -M virt -smp 4 -m 2G -bios opensbi32.bin); BUS=device ;;
   arm-netbsd-eabihf)     port=evbarm-earmv7hf;  img=armv7.img;   kern=netbsd-GENERIC.ub; root=ld7a;    pk=earmv7hf
@@ -76,7 +76,7 @@ QEMU=("${Q[@]}" -nographic -no-reboot -kernel kernel -append "root=$root"
 
 cat > cmds <<'EOF'
 R=$(sysctl -n kern.rawpartition | awk '{printf "%c",97+$1}'); echo raw=$R
-for d in $(sysctl -n hw.disknames); do tar -tf /dev/r$d$R 2>/dev/null | grep -q guest-run && S=$d; done; echo scripts=$S
+for d in $(sysctl -n hw.disknames | tr , " "); do [ "$(disklabel $d 2>/dev/null | awk '/total sectors/{print $3}')" = 131072 ] && S=$d; done; echo scripts=$S
 mkdir -p /t && tar -xf /dev/r$S$R -C /t
 sh -x /t/scripts/guest-run.sh 2>&1 | tail -n 40
 EOF
