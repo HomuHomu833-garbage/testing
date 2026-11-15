@@ -15,7 +15,7 @@ B="https://cdn.netbsd.org/pub/NetBSD/NetBSD-$V"
 root=dk1
 case $T in
   riscv64-netbsd-none)   port=riscv-riscv64;    img=riscv64.img; kern=netbsd-GENERIC64;  pk=riscv64
-    Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 4 -m 4G); BUS=device ;;
+    Q=(qemu-system-riscv64 -M virt -cpu rv64 -smp 1 -m 4G); BUS=device ;;
   riscv32-netbsd-none)   port=riscv-riscv32;    img=riscv32.img; kern=netbsd-GENERIC;    pk=""
     Q=(qemu-system-riscv32 -M virt -smp 4 -m 2G -bios opensbi32.bin); BUS=device ;;
   arm-netbsd-eabihf)     port=evbarm-earmv7hf;  img=armv7.img;   kern=netbsd-GENERIC.ub; root=ld7a;    pk=earmv7hf
