@@ -103,6 +103,12 @@ jobs:
               && xz -dc /tmp/pk.xz | awk '/^Package: qemu-user$/{p=1} p&&/^Filename:/{print $2; exit}')
           curl -fsSL --retry 5 -o /tmp/qu.deb "https://deb.debian.org/debian/$v" && dpkg-deb -x /tmp/qu.deb /tmp/qu \
             && sudo cp -f /tmp/qu/usr/bin/qemu-* /usr/bin/ && qemu-sparc64 --version | head -1
+          # qemu before 11 takes a dot-new predicate jump on any set bit, not bit 0, and LLVM's
+          # hexagon code relies on bit 0: take qemu-hexagon from Debian forky.
+          v=$(curl -fsSL --retry 5 -o /tmp/pf.xz https://deb.debian.org/debian/dists/forky/main/binary-$(dpkg --print-architecture)/Packages.xz \
+              && xz -dc /tmp/pf.xz | awk '/^Package: qemu-user$/{p=1} p&&/^Filename:/{print $2; exit}')
+          curl -fsSL --retry 5 -o /tmp/qf.deb "https://deb.debian.org/debian/$v" && dpkg-deb -x /tmp/qf.deb /tmp/qf \
+            && sudo cp -f /tmp/qf/usr/bin/qemu-hexagon /usr/bin/ && qemu-hexagon --version | head -1
           mountpoint -q /proc/sys/fs/binfmt_misc || sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
           for f in /usr/lib/binfmt.d/qemu-*.conf; do
             n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] && echo -1 | sudo tee "/proc/sys/fs/binfmt_misc/$n" >/dev/null
