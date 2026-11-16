@@ -14,7 +14,9 @@ case "$(uname -s)" in
            fi ;; esac
            # foreign FreeBSD builds (arm) run through qemu's bsd-user emulator via binmiscctl
            case "${T:-}" in arm-*|armv7-*)
-             sudo pkg install -y qemu-user-static && sudo service qemu_user_static onestart
+             # qemu-user-static is bsd-user 3.1 (2018); the -devel port follows current qemu
+             { sudo pkg install -y qemu-user-static-devel || sudo pkg install -y qemu-user-static; } && sudo service qemu_user_static onestart
+             pkg info -x qemu-user-static | head -1
              # the emulator loads the arm program's ld-elf.so.1 and libs from its prefix. FreeBSD ships
              # armv7 only as an SD card image: mount its root and copy the runtime parts.
              r=$(freebsd-version -u | sed 's/-p[0-9]*$//'); v=${r%-RELEASE}
