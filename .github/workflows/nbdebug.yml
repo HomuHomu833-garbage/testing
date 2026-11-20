@@ -27,7 +27,7 @@ jobs:
       - name: Trace and backtrace in the VM
         shell: cpa.sh {0}
         run: |
-          export T=x86-bsd
+          set +e; export T=x86-bsd
           sh ./scripts/bsd-setup.sh >/dev/null 2>&1
           export PATH="$HOME/gnubin:$PATH"
           V='${{ inputs.version }}'; d=$HOME/nb; mkdir -p $d/p $d/b; cd $d
