@@ -1,0 +1,180 @@
+name: Test cmake-custom
+run-name: Test cmake ${{ inputs.version || 'all versions' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "cmake-custom release tag (empty = every release)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.v.outputs.versions }}
+    steps:
+      - id: v
+        env: { GH_TOKEN: "${{ github.token }}", V: "${{ inputs.version }}" }
+        run: |
+          if [ -n "$V" ]; then echo "versions=[\"$V\"]" >> "$GITHUB_OUTPUT"
+          else echo "versions=$(gh api 'repos/HomuHomu833/cmake-custom/releases?per_page=100' -q '[.[].tag_name]')" >> "$GITHUB_OUTPUT"; fi
+
+  linux:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+        shard: [0, 1]
+    name: linux ${{ matrix.version }} (${{ matrix.shard }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install qemu and cross libcs
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils
+          for p in libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
+                   libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
+                   libc6-mips64-cross libc6-mips64el-cross; do sudo apt-get install -yq "$p" >/dev/null 2>&1 || echo "no $p"; done
+          sh ./scripts/qemu11.sh
+          mountpoint -q /proc/sys/fs/binfmt_misc || sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          for f in /usr/lib/binfmt.d/qemu-*.conf; do
+            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] && echo -1 | sudo tee "/proc/sys/fs/binfmt_misc/$n" >/dev/null
+            sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register" || true
+          done
+          if [ -x /usr/bin/qemu-aarch64_be ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64_be ]; then
+            printf '%s' ':qemu-aarch64_be:M::\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff:/usr/bin/qemu-aarch64_be:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
+          fi
+      - name: glibc sysroots from bootlin (arches Ubuntu has no cross libc for)
+        run: |
+          for p in aarch64_be-linux-gnu:aarch64be armeb-linux-gnueabihf:armebv7-eabihf riscv32-linux-gnu:riscv32-ilp32d sparc64-linux-gnu:sparc64; do
+            t=${p%%:*} b=${p#*:} u=https://toolchains.bootlin.com/downloads/releases/toolchains/${p#*:}/tarballs
+            f=$(curl -fsSL "$u/" | grep -oE "$b--glibc--stable-[0-9.]+-[0-9]+\.tar\.xz" | sort -uV | tail -n1) || continue
+            mkdir -p "$RUNNER_TEMP/bl/$t"; curl -fsSL "$u/$f" | tar -xJ -C "$RUNNER_TEMP/bl/$t" || continue
+            sr=$(find "$RUNNER_TEMP/bl/$t" -maxdepth 3 -type d -name sysroot | head -n1)
+            [ -n "$sr" ] && ln -sfn "$sr" "$RUNNER_TEMP/sr-$t"
+          done
+          echo "SR_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Test
+        env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", N: "${{ matrix.shard }}", WORK: "${{ runner.temp }}/w" }
+        run: |
+          ts=$(gh api "repos/HomuHomu833/cmake-custom/releases/tags/$V" -q '.assets[].name' | sed -nE 's/^cmake-(.*-linux-.*)\.tar\.xz$/\1/p' \
+               | grep -vE 'x32$' | sort | awk -v n="$N" 'NR%2==n')
+          ./scripts/test-cmake.sh "$V" $ts
+      - name: Report
+        if: always()
+        run: ./scripts/report.sh "cmake-${{ matrix.version }}-linux${{ matrix.shard }}"
+
+  wine:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+    name: wine ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install wine
+        run: |
+          sudo dpkg --add-architecture i386; sudo apt-get update -q
+          sudo apt-get install -yq wine wine64 wine32:i386 p7zip-full
+          wineboot -i >/dev/null 2>&1 || true
+      - name: Test
+        env: { V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w", HOST_OS: windows, WINE: wine, WINEDEBUG: "-all" }
+        run: ./scripts/test-cmake.sh "$V" x86_64-w64-mingw32 i686-w64-mingw32
+      - name: Report
+        if: always()
+        run: ./scripts/report.sh "cmake-${{ matrix.version }}-wine"
+
+  winarm:
+    needs: plan
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+    name: windows-arm64 ${{ matrix.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        env: { V: "${{ matrix.version }}", HOST_OS: windows }
+        run: |
+          export WORK="$(cygpath -u "$RUNNER_TEMP")/w"
+          ./scripts/test-cmake.sh "$V" aarch64-w64-mingw32 arm64ec-w64-mingw32
+      - name: Report
+        if: always()
+        run: ./scripts/report.sh "cmake-${{ matrix.version }}-winarm"
+
+  macos:
+    needs: plan
+    runs-on: ${{ matrix.h.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+        h:
+          - { runner: macos-15, triples: "arm64-apple-darwin arm64e-apple-darwin" }
+          - { runner: macos-15-intel, triples: "x86_64-apple-darwin x86_64h-apple-darwin" }
+    name: macos ${{ matrix.version }} (${{ matrix.h.runner }})
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install bash coreutils
+      - name: Test
+        env: { V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w", HOST_OS: darwin }
+        run: '"$(brew --prefix)/bin/bash" ./scripts/test-cmake.sh "$V" ${{ matrix.h.triples }}'
+      - name: Report
+        if: always()
+        run: '"$(brew --prefix)/bin/bash" ./scripts/report.sh "cmake-${{ matrix.version }}-${{ matrix.h.runner }}"'
+
+  bsd:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+        h:
+          - { os: freebsd, arch: x86-64, ver: "15.1", triples: "x86_64-freebsd-none x86-freebsd-none" }
+          - { os: freebsd, arch: arm64,  ver: "15.1", triples: "aarch64-freebsd-none" }
+          - { os: netbsd,  arch: x86-64, ver: "11.0", triples: "x86_64-netbsd-none x86-netbsd-none" }
+          - { os: netbsd,  arch: arm64,  ver: "11.0", triples: "aarch64-netbsd-none" }
+          - { os: openbsd, arch: x86-64, ver: "8.0",  triples: "x86_64-openbsd-none" }
+          - { os: openbsd, arch: arm64,  ver: "8.0",  triples: "aarch64-openbsd-none" }
+    name: ${{ matrix.h.os }} ${{ matrix.version }} (${{ matrix.h.arch }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cross-platform-actions/action@v1.7.0
+        with:
+          operating_system: ${{ matrix.h.os }}
+          architecture: ${{ matrix.h.arch }}
+          version: ${{ matrix.h.ver }}
+          memory: 4G
+          cpu_count: 4
+      - name: Test in the VM
+        shell: cpa.sh {0}
+        run: |
+          export T='${{ startsWith(matrix.h.triples, 'x86_64') && contains(matrix.h.triples, 'x86-') && 'x86-bsd' || 'none' }}'
+          sh ./scripts/bsd-setup.sh >/dev/null 2>&1
+          export PATH="$HOME/gnubin:$PATH" WORK="$HOME/w" HOST_OS=bsd
+          bash ./scripts/test-cmake.sh '${{ matrix.version }}' ${{ matrix.h.triples }} || true
+          cp "$HOME"/w/results-*.txt ./bsd-results.txt 2>/dev/null || true
+      - name: Report
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/w"; [ -f bsd-results.txt ] && cp bsd-results.txt "$RUNNER_TEMP/w/results-bsd.txt"
+          ./scripts/report.sh "cmake-${{ matrix.version }}-${{ matrix.h.os }}-${{ matrix.h.arch }}"
