@@ -61,11 +61,15 @@ EOF
 # HTTPS download with hash check, then a tar.gz round trip of what came down
 cat > "$FIX/d.cmake" <<'EOF'
 file(DOWNLOAD "https://raw.githubusercontent.com/HomuHomu833-garbage/testing/0299cbe/scripts/test-cmake.sh"
-  "${D}/dl/f.sh" STATUS st TLS_VERIFY ON
-  EXPECTED_HASH SHA256=1674139de4d0ad5b40d2bd80fc1981fe7df50eb928a88d55fea902cd57eb0b0c)
+  "${D}/dl/f.sh" STATUS st TLS_VERIFY ON)
 list(GET st 0 code)
 if(NOT code EQUAL 0)
   message(FATAL_ERROR "download failed: ${st}")
+endif()
+file(SHA256 "${D}/dl/f.sh" h0)
+file(STRINGS "${D}/dl/f.sh" first LIMIT_COUNT 1)
+if(NOT h0 STREQUAL "1674139de4d0ad5b40d2bd80fc1981fe7df50eb928a88d55fea902cd57eb0b0c")
+  message(FATAL_ERROR "wrong content, sha256 ${h0}, first line [${first}]")
 endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" -E tar czf a.tar.gz dl WORKING_DIRECTORY "${D}" RESULT_VARIABLE r1)
 file(MAKE_DIRECTORY "${D}/ex")
