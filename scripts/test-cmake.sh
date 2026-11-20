@@ -117,7 +117,9 @@ for T in "$@"; do
   dd="$d/dlt"; mkdir -p "$dd"; df="$FIX/d.cmake"
   [ "$HOST_OS" = windows ] && command -v cygpath >/dev/null && { dd=$(cygpath -m "$dd"); df=$(cygpath -m "$df"); }
   [ -n "$WINE" ] && { dd="Z:${dd//\//\\}"; df="Z:${df//\//\\}"; }
-  expect "HTTPS download + tar round trip" "download-ok" "${R[@]}" "$b/cmake$x" -DD="$dd" -P "$df"
+  # bionic resolves names through Android's netd, which a plain Linux host lacks
+  case $T in *-android*) skip "HTTPS download: no Android resolver on this host" ;;
+    *) expect "HTTPS download + tar round trip" "download-ok" "${R[@]}" "$b/cmake$x" -DD="$dd" -P "$df" ;; esac
   if [ "$HOST_OS" = windows ]; then
     # -E capabilities arrived in 3.7
     [ "$VER" != 3.6.0 ] && expect "cmake -E capabilities" '"version"' "${R[@]}" "$b/cmake$x" -E capabilities
