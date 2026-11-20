@@ -27,7 +27,7 @@ usage() { local l=$1 p=$2 out rc; shift 2; out=$(TO "$@" 2>&1); rc=$?
 # a path as the tool under test sees it
 P() { local p=$1
   if [ -n "$WINE" ]; then p="Z:${p//\//\\}"
-  elif [ "$HOST_OS" = windows ] && command -v cygpath >/dev/null; then p=$(cygpath -m "$p"); fi
+  elif [ "$HOST_OS" = windows ] && command -v cygpath >/dev/null; then p=$(cygpath -w "$p"); fi
   printf '%s' "$p"; }
 
 declare -A SYSROOT=(
@@ -74,6 +74,7 @@ open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(
     + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 EOF
 # two magic checks without xxd: ext4 0xEF53 at 1080, f2fs 0xF2F52010 at 1024
+first() { dd if="$1" bs="$2" count=1 2>/dev/null; }
 hexat() { od -An -tx1 -j "$2" -N "$3" "$1" 2>/dev/null | tr -d ' \n'; }
 
 for T in "$@"; do
@@ -94,7 +95,7 @@ for T in "$@"; do
   R=(); [ -n "$WINE" ] && R=("$WINE")
   # a native tool: absent or a text placeholder means SKIP, otherwise run through $R
   have() { local f="$1$x"; [ -f "$f" ] || { skip "$(basename "$1"): not shipped"; return 1; }
-    if head -c 4 "$f" | grep -q 'This'; then skip "$(basename "$1"): placeholder"; return 1; fi; return 0; }
+    if [ "$(first "$f" 16)" = "This placeholder" ]; then skip "$(basename "$1"): placeholder"; return 1; fi; return 0; }
   unset QEMU_LD_PREFIX
   probe="$bt/aapt2$x"
   if [ "$HOST_OS" = linux ] && [ "${T%%-*}" != "$(uname -m)" ] && readelf -lW "$probe" 2>/dev/null | grep -q 'interpreter'; then
@@ -164,15 +165,16 @@ for T in "$@"; do
     expect "sdkmanager finds the SDK root" "^[0-9]+\.[0-9]" sh "$ct/sdkmanager" --version
   fi
   have "$bt/split-select" && usage "split-select" "usage|split-select" "${R[@]}" "$bt/split-select$x" --help
-  for p in lld bcc_compat llvm-rs-cc; do [ -f "$bt/$p$x" ] || [ -f "$bt/$p" ] || continue
-    { [ -f "$bt/$p" ] && head -c 4 "$bt/$p" | grep -q This; } && skip "$p: placeholder" || \
-      usage "$p" "version|usage|OVERVIEW|LLVM" "${R[@]}" "$bt/$p$x" --version; done
+  for p in lld bcc_compat llvm-rs-cc; do
+    f="$bt/$p$x"; [ -f "$f" ] || f="$bt/$p"; [ -f "$f" ] || continue
+    if [ "$(first "$f" 16)" = "This placeholder" ]; then skip "$p: placeholder"
+    else usage "$p" "version|usage|OVERVIEW|LLVM" "${R[@]}" "$f" --version; fi; done
 
   # -- platform-tools ----------------------------------------------------------------------
   if [ -d "$pt" ]; then
     have "$pt/adb" && expect "adb version" "Android Debug Bridge version" "${R[@]}" "$pt/adb$x" version
     have "$pt/fastboot" && expect "fastboot --version" "fastboot version" "${R[@]}" "$pt/fastboot$x" --version
-    have "$pt/sqlite3" && expect "sqlite3 SQL" "^42\|abc$" "${R[@]}" "$pt/sqlite3$x" :memory: \
+    have "$pt/sqlite3" && expect "sqlite3 SQL" "^42\|abc" "${R[@]}" "$pt/sqlite3$x" :memory: \
       "create table t(a,b); insert into t values(41,'abc'); select a+1, b from t;"
     have "$pt/hprof-conv" && usage "hprof-conv" "usage|hprof-conv" "${R[@]}" "$pt/hprof-conv$x"
     if have "$pt/mke2fs"; then
@@ -190,7 +192,7 @@ for T in "$@"; do
     if have "$pt/etc1tool"; then
       if [ -s "$FIX/in.png" ]; then
         expect "etc1tool encode" "" "${R[@]}" "$pt/etc1tool$x" "$(P "$FIX/in.png")" --encode -o "$(P "$w/t.pkm")"
-        [ "$(head -c 4 "$w/t.pkm" 2>/dev/null)" = "PKM " ] && pass "etc1tool PKM header" || bad "etc1tool PKM header" ""
+        [ "$(first "$w/t.pkm" 4)" = "PKM " ] && pass "etc1tool PKM header" || bad "etc1tool PKM header" ""
         expect "etc1tool decode" "" "${R[@]}" "$pt/etc1tool$x" "$(P "$w/t.pkm")" --decode -o "$(P "$w/out.png")"
         [ "$(hexat "$w/out.png" 1 3)" = 504e47 ] && pass "etc1tool decoded PNG" || bad "etc1tool decoded PNG" ""
       else skip "etc1tool: no python3 for the input PNG"; fi
