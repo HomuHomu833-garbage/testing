@@ -79,7 +79,8 @@ for T in "$@"; do
   [ -n "$WINE" ] && sf="Z:${sf//\//\\}"
   expect "cmake -P script" "script-ok 42:abc;42 a,m,z" "${R[@]}" "$b/cmake$x" -DOUT="$o" -P "$sf"
   if [ "$HOST_OS" = windows ]; then
-    expect "cmake -E capabilities" '"version"' "${R[@]}" "$b/cmake$x" -E capabilities
+    # -E capabilities arrived in 3.7
+    [ "$VER" != 3.6.0 ] && expect "cmake -E capabilities" '"version"' "${R[@]}" "$b/cmake$x" -E capabilities
     continue
   fi
   cc=$(command -v cc || command -v clang || command -v gcc)
