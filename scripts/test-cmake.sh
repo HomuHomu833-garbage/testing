@@ -12,7 +12,7 @@ mkdir -p "$WORK"; RESULTS="$WORK/results-cmake-$VER.txt"; : > "$RESULTS"
 CUR=""; nf=0
 log()  { echo "$1" | tee -a "$RESULTS"; }
 pass() { log "OK    [$CUR] $1"; }
-bad()  { log "FAIL  [$CUR] $1 :: $(tr '\n' ' ' <<<"${2:-}" | cut -c1-300)"; nf=$((nf+1)); }
+bad()  { log "FAIL  [$CUR] $1 :: $(sed -n '/Deprecation Warning/,/^$/d; /Compatibility with CMake/d; p' <<<"${2:-}" | tr '\n' ' ' | tr -s ' ' | cut -c1-700)"; nf=$((nf+1)); }
 skip() { log "SKIP  [$CUR] $1"; }
 TO() { if command -v timeout >/dev/null; then timeout 300 "$@"; else "$@"; fi; }
 expect() { local l=$1 p=$2 out rc; shift 2; out=$(TO "$@" 2>&1); rc=$?
@@ -66,6 +66,9 @@ for T in "$@"; do
     case $T in *-linux-gnu*) if [ -n "$sr" ] && [ -d "$sr" ]; then export QEMU_LD_PREFIX=$sr
       else skip "dynamic glibc build, no $T libc on this runner"; continue; fi ;; esac
   fi
+  # macOS only runs third-party arm64e code with the arm64e preview ABI boot-arg
+  if [ "$HOST_OS" = darwin ] && [ "${T%%-*}" = arm64e ]; then "$b/cmake" --version >/dev/null 2>&1
+    [ $? -eq 137 ] && { skip "this Mac does not run third-party arm64e binaries"; continue; }; fi
   expect "cmake --version" "cmake version ${VER//./\\.}" "${R[@]}" "$b/cmake$x" --version
   expect "ctest --version" "ctest version" "${R[@]}" "$b/ctest$x" --version
   expect "cpack --version" "cpack version" "${R[@]}" "$b/cpack$x" --version
