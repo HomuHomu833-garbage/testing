@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # test-cmake.sh VERSION TRIPLE...: functional test of HomuHomu833/cmake-custom builds.
-# Per triple: cmake/ctest/cpack/ninja --version, a cmake -P script, and (where a native C
-# compiler exists) configure + build + ctest of a small project with the bundled ninja.
+# Per triple: --version of each tool, a cmake -P script, an HTTPS download + tar round trip,
+# and (where a native C
+# compiler exists) configure, build, ctest, install and cpack of a small project with ninja.
 # Foreign Linux builds run through qemu-user binfmt; dynamic glibc ones take their libc from
 # QEMU_LD_PREFIX. HOST_OS=windows runs the .exe files (through $WINE when set).
 # Env: REPO (default HomuHomu833/cmake-custom), WORK, HOST_OS (linux|darwin|bsd|windows), WINE
@@ -30,11 +31,23 @@ FIX="$WORK/fix"; mkdir -p "$FIX/p"
 cat > "$FIX/p/CMakeLists.txt" <<'EOF'
 cmake_minimum_required(VERSION 3.6)
 project(t C)
+set(T_MAGIC 42)
+configure_file(cfg.h.in "${CMAKE_CURRENT_BINARY_DIR}/cfg.h")
+add_library(m STATIC m.c)
+target_include_directories(m PUBLIC "${CMAKE_CURRENT_BINARY_DIR}")
 add_executable(t t.c)
+target_link_libraries(t m)
+install(TARGETS t m RUNTIME DESTINATION bin ARCHIVE DESTINATION lib)
 enable_testing()
 add_test(NAME t COMMAND t)
+set_tests_properties(t PROPERTIES PASS_REGULAR_EXPRESSION "t-ok 42")
+set(CPACK_GENERATOR TGZ)
+set(CPACK_PACKAGE_FILE_NAME t-pkg)
+include(CPack)
 EOF
-printf '#include <stdio.h>\nint main(void){puts("t-ok");return 0;}\n' > "$FIX/p/t.c"
+printf '#define T_MAGIC @T_MAGIC@\nint m(void);\n' > "$FIX/p/cfg.h.in"
+printf '#include "cfg.h"\nint m(void){return T_MAGIC;}\n' > "$FIX/p/m.c"
+printf '#include <stdio.h>\n#include "cfg.h"\nint main(void){printf("t-ok %%d\\n",m());return 0;}\n' > "$FIX/p/t.c"
 cat > "$FIX/s.cmake" <<'EOF'
 string(REGEX REPLACE "([a-z]+)-([0-9]+)" "\\2:\\1" r "abc-42")
 list(APPEND l z a m)
@@ -44,6 +57,25 @@ file(WRITE "${OUT}" "${r};${m}")
 file(READ "${OUT}" back)
 string(REPLACE ";" "," j "${l}")
 message(STATUS "script-ok ${back} ${j}")
+EOF
+# HTTPS download with hash check, then a tar.gz round trip of what came down
+cat > "$FIX/d.cmake" <<'EOF'
+file(DOWNLOAD "https://raw.githubusercontent.com/HomuHomu833-garbage/testing/0299cbe/scripts/test-cmake.sh"
+  "${D}/dl/f.sh" STATUS st TLS_VERIFY ON
+  EXPECTED_HASH SHA256=1674139de4d0ad5b40d2bd80fc1981fe7df50eb928a88d55fea902cd57eb0b0c)
+list(GET st 0 code)
+if(NOT code EQUAL 0)
+  message(FATAL_ERROR "download failed: ${st}")
+endif()
+execute_process(COMMAND "${CMAKE_COMMAND}" -E tar czf a.tar.gz dl WORKING_DIRECTORY "${D}" RESULT_VARIABLE r1)
+file(MAKE_DIRECTORY "${D}/ex")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E tar xzf ../a.tar.gz WORKING_DIRECTORY "${D}/ex" RESULT_VARIABLE r2)
+file(SHA256 "${D}/ex/dl/f.sh" h)
+if(r1 EQUAL 0 AND r2 EQUAL 0 AND h STREQUAL "1674139de4d0ad5b40d2bd80fc1981fe7df50eb928a88d55fea902cd57eb0b0c")
+  message(STATUS "download-ok")
+else()
+  message(FATAL_ERROR "tar round trip: ${r1} ${r2} ${h}")
+endif()
 EOF
 
 for T in "$@"; do
@@ -78,6 +110,10 @@ for T in "$@"; do
   sf="$FIX/s.cmake"; [ "$HOST_OS" = windows ] && command -v cygpath >/dev/null && sf=$(cygpath -m "$sf")
   [ -n "$WINE" ] && sf="Z:${sf//\//\\}"
   expect "cmake -P script" "script-ok 42:abc;42 a,m,z" "${R[@]}" "$b/cmake$x" -DOUT="$o" -P "$sf"
+  dd="$d/dlt"; mkdir -p "$dd"; df="$FIX/d.cmake"
+  [ "$HOST_OS" = windows ] && command -v cygpath >/dev/null && { dd=$(cygpath -m "$dd"); df=$(cygpath -m "$df"); }
+  [ -n "$WINE" ] && { dd="Z:${dd//\//\\}"; df="Z:${df//\//\\}"; }
+  expect "HTTPS download + tar round trip" "download-ok" "${R[@]}" "$b/cmake$x" -DD="$dd" -P "$df"
   if [ "$HOST_OS" = windows ]; then
     # -E capabilities arrived in 3.7
     [ "$VER" != 3.6.0 ] && expect "cmake -E capabilities" '"version"' "${R[@]}" "$b/cmake$x" -E capabilities
@@ -88,10 +124,16 @@ for T in "$@"; do
   bd="$d/build"; rm -rf "$bd"; mkdir -p "$bd"
   # an Android cmake defaults its target to Android; this host builds for itself
   sys=(); case $T in *-android*) sys=(-DCMAKE_SYSTEM_NAME=Linux) ;; esac
-  if out=$(cd "$bd" && TO "$b/cmake" "$FIX/p" -G Ninja -DCMAKE_MAKE_PROGRAM="$b/ninja" -DCMAKE_C_COMPILER="$cc" "${sys[@]}" 2>&1); then
+  if out=$(cd "$bd" && TO "$b/cmake" "$FIX/p" -G Ninja -DCMAKE_MAKE_PROGRAM="$b/ninja" -DCMAKE_C_COMPILER="$cc" -DCMAKE_INSTALL_PREFIX="$d/inst" "${sys[@]}" 2>&1); then
     pass "configure (Ninja)"
     if out=$(TO "$b/cmake" --build "$bd" 2>&1); then pass "build"
       expect "ctest" "100% tests passed" sh -c "cd '$bd' && '$b/ctest' --output-on-failure"
+      if out=$(TO "$b/cmake" --build "$bd" --target install 2>&1) && [ -x "$d/inst/bin/t" ] && [ -f "$d/inst/lib/libm.a" ]; then
+        expect "installed binary runs" "t-ok 42" "$d/inst/bin/t"
+      else bad "install" "$out"; fi
+      if out=$(cd "$bd" && TO "$b/cpack" -G TGZ 2>&1) && [ -f "$bd/t-pkg.tar.gz" ]; then
+        expect "cpack TGZ has bin/t" "bin/t$" "$b/cmake" -E tar tzf "$bd/t-pkg.tar.gz"
+      else bad "cpack TGZ" "$out"; fi
     else bad "build" "$out"; fi
   else bad "configure (Ninja)" "$out"; fi
   rm -rf "$d"
