@@ -1,0 +1,47 @@
+name: Debug x86 NetBSD cmake
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "cmake-custom release tag"
+        required: false
+        default: "4.1.2"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cross-platform-actions/action@v1.7.0
+        with:
+          operating_system: netbsd
+          architecture: x86-64
+          version: "11.0"
+          memory: 4G
+          cpu_count: 4
+      - name: Trace and backtrace in the VM
+        shell: cpa.sh {0}
+        run: |
+          export T=x86-bsd
+          sh ./scripts/bsd-setup.sh >/dev/null 2>&1
+          export PATH="$HOME/gnubin:$PATH"
+          V='${{ inputs.version }}'; d=$HOME/nb; mkdir -p $d/p $d/b; cd $d
+          curl -fsSL -o c.tar.xz "https://github.com/HomuHomu833/cmake-custom/releases/download/$V/cmake-x86-netbsd-none.tar.xz"
+          tar -xJf c.tar.xz; c=$(find $d -name cmake -path '*/bin/*' | head -1); b=$(dirname $c)
+          file $c $b/ninja
+          printf 'cmake_minimum_required(VERSION 3.10)\nproject(t C)\n' > p/CMakeLists.txt
+          echo "== plain configure"; (cd b && $c ../p -G Ninja -DCMAKE_MAKE_PROGRAM=$b/ninja 2>&1 | tail -5)
+          echo "== ninja alone"; $b/ninja --version; echo rc=$?
+          echo "== ktrace"; rm -rf b/*; (cd b && ktrace -i -f $d/kt $c ../p -G Ninja -DCMAKE_MAKE_PROGRAM=$b/ninja >/dev/null 2>&1)
+          kdump -f $d/kt | grep -E 'PSIG|SIGSEGV|SIGBUS|SIGILL|SIGABRT|RET .* -1|CALL  (fork|vfork|posix_spawn|execve|__kevent|kqueue)' | tail -40
+          echo "-- last 60 events before the signal"
+          kdump -f $d/kt | grep -n 'PSIG' | head -3
+          n=$(kdump -f $d/kt | grep -n 'PSIG' | head -1 | cut -d: -f1); [ -n "$n" ] && kdump -f $d/kt | sed -n "$((n-60)),$((n+3))p"
+          echo "== gdb"; rm -rf b/*
+          (cd b && gdb -batch -ex 'set follow-fork-mode parent' -ex run -ex bt -ex 'info registers' -ex 'x/8i $pc' \
+             --args $c ../p -G Ninja -DCMAKE_MAKE_PROGRAM=$b/ninja 2>&1 | tail -40)
