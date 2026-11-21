@@ -172,7 +172,15 @@ for T in "$@"; do
 
   # -- platform-tools ----------------------------------------------------------------------
   if [ -d "$pt" ]; then
-    have "$pt/adb" && expect "adb version" "Android Debug Bridge version" "${R[@]}" "$pt/adb$x" version
+    if have "$pt/adb"; then
+      expect "adb version" "Android Debug Bridge version" "${R[@]}" "$pt/adb$x" version
+      # RSA keygen runs BoringSSL's bignum code; the host checks the key is sound
+      rm -f "$w/adbkey" "$w/adbkey.pub"
+      expect "adb keygen" "" "${R[@]}" "$pt/adb$x" keygen "$(P "$w/adbkey")"
+      if command -v openssl >/dev/null && [ -s "$w/adbkey" ]; then
+        expect "adb key passes openssl rsa -check" "RSA key ok" openssl rsa -check -noout -in "$w/adbkey"
+      fi
+    fi
     have "$pt/fastboot" && expect "fastboot --version" "fastboot version" "${R[@]}" "$pt/fastboot$x" --version
     have "$pt/sqlite3" && expect "sqlite3 SQL" "^42\|abc" "${R[@]}" "$pt/sqlite3$x" :memory: \
       "create table t(a,b); insert into t values(41,'abc'); select a+1, b from t;"
