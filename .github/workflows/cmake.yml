@@ -66,11 +66,32 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", N: "${{ matrix.shard }}", WORK: "${{ runner.temp }}/w" }
         run: |
           ts=$(gh api "repos/HomuHomu833/cmake-custom/releases/tags/$V" -q '.assets[].name' | sed -nE 's/^cmake-(.*-linux-.*)\.tar\.xz$/\1/p' \
-               | grep -vE 'x32$' | sort | awk -v n="$N" 'NR%2==n')
+               | grep -vE 'x32$|^aarch64-linux-' | sort | awk -v n="$N" 'NR%2==n')
           ./scripts/test-cmake.sh "$V" $ts
       - name: Report
         if: always()
         run: ./scripts/report.sh "cmake-${{ matrix.version }}-linux${{ matrix.shard }}"
+
+  linuxarm:
+    needs: plan
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+    name: linux-arm64 ${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test natively on arm64
+        env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w" }
+        run: |
+          command -v unzip >/dev/null || { sudo apt-get update -q && sudo apt-get install -yq unzip; }
+          ts=$(gh api "repos/HomuHomu833/cmake-custom/releases/tags/$V" -q '.assets[].name' | sed -nE 's/^cmake-(aarch64-linux-.*)\.tar\.xz$/\1/p' | sort)
+          ./scripts/test-cmake.sh "$V" $ts
+      - name: Report
+        if: always()
+        run: ./scripts/report.sh "cmake-${{ matrix.version }}-linuxarm"
 
   wine:
     needs: plan
