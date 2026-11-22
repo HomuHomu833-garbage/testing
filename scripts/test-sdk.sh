@@ -10,7 +10,7 @@
 set -uo pipefail
 REPO="${REPO:-HomuHomu833/android-sdk-custom}"; VER=$1; shift
 WORK="${WORK:-$HOME/sdk-test}"; HOST_OS="${HOST_OS:-linux}"; WINE="${WINE:-}"
-PLATFORM_ZIP="${PLATFORM_ZIP:-https://dl.google.com/android/repository/platform-35_r02.zip}"
+PLATFORM_ZIP="${PLATFORM_ZIP:-https://dl.google.com/android/repository/platform-28_r06.zip}"
 mkdir -p "$WORK"; RESULTS="$WORK/results-sdk-$VER.txt"; : > "$RESULTS"
 CUR=""; nf=0
 log()  { echo "$1" | tee -a "$RESULTS"; }
