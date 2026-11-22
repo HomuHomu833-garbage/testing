@@ -66,7 +66,7 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", N: "${{ matrix.shard }}", WORK: "${{ runner.temp }}/w" }
         run: |
           ts=$(gh api "repos/HomuHomu833/android-sdk-custom/releases/tags/$V" -q '.assets[].name' | sed -nE 's/^android-sdk-(.*-linux-.*)\.tar\.xz$/\1/p' \
-               | grep -vE 'x32$|^aarch64-linux-' | sort | awk -v n="$N" 'NR%2==n')
+               | grep -vE 'x32$|^(aarch64|arm|thumb)' | sort | awk -v n="$N" 'NR%2==n')
           ./scripts/test-sdk.sh "$V" $ts
       - name: Report
         if: always()
@@ -83,11 +83,36 @@ jobs:
     name: linux-arm64 ${{ matrix.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Test natively on arm64
-        env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w" }
+      - name: Install qemu and cross libcs
         run: |
-          command -v unzip >/dev/null || { sudo apt-get update -q && sudo apt-get install -yq unzip; }
-          ts=$(gh api "repos/HomuHomu833/android-sdk-custom/releases/tags/$V" -q '.assets[].name' | sed -nE 's/^android-sdk-(aarch64-linux-.*)\.tar\.xz$/\1/p' | sort)
+          sudo apt-get update -q
+          sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils
+          for p in libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
+                   libc6-ppc64el-cross libc6-s390x-cross libc6-loong64-cross libc6-mips-cross libc6-mipsel-cross \
+                   libc6-mips64-cross libc6-mips64el-cross; do sudo apt-get install -yq "$p" >/dev/null 2>&1 || echo "no $p"; done
+          sh ./scripts/qemu11.sh
+          mountpoint -q /proc/sys/fs/binfmt_misc || sudo mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+          for f in /usr/lib/binfmt.d/qemu-*.conf; do
+            n=$(cut -d: -f2 "$f"); [ -e "/proc/sys/fs/binfmt_misc/$n" ] && echo -1 | sudo tee "/proc/sys/fs/binfmt_misc/$n" >/dev/null
+            sudo sh -c "cat '$f' > /proc/sys/fs/binfmt_misc/register" || true
+          done
+          if [ -x /usr/bin/qemu-aarch64_be ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64_be ]; then
+            printf '%s' ':qemu-aarch64_be:M::\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff:/usr/bin/qemu-aarch64_be:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
+          fi
+      - name: glibc sysroots from bootlin (arches Ubuntu has no cross libc for)
+        run: |
+          for p in aarch64_be-linux-gnu:aarch64be armeb-linux-gnueabihf:armebv7-eabihf riscv32-linux-gnu:riscv32-ilp32d sparc64-linux-gnu:sparc64; do
+            t=${p%%:*} b=${p#*:} u=https://toolchains.bootlin.com/downloads/releases/toolchains/${p#*:}/tarballs
+            f=$(curl -fsSL "$u/" | grep -oE "$b--glibc--stable-[0-9.]+-[0-9]+\.tar\.xz" | sort -uV | tail -n1) || continue
+            mkdir -p "$RUNNER_TEMP/bl/$t"; curl -fsSL "$u/$f" | tar -xJ -C "$RUNNER_TEMP/bl/$t" || continue
+            sr=$(find "$RUNNER_TEMP/bl/$t" -maxdepth 3 -type d -name sysroot | head -n1)
+            [ -n "$sr" ] && ln -sfn "$sr" "$RUNNER_TEMP/sr-$t"
+          done
+          echo "SR_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Test on arm64 (aarch64 native, 32-bit arm and big-endian under qemu)
+        env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w", SR_DIR: "${{ runner.temp }}" }
+        run: |
+          ts=$(gh api "repos/HomuHomu833/android-sdk-custom/releases/tags/$V" -q '.assets[].name' | sed -nE 's/^android-sdk-((aarch64|arm|thumb)[^-]*-linux-.*)\.tar\.xz$/\1/p' | sort)
           ./scripts/test-sdk.sh "$V" $ts
       - name: Report
         if: always()
