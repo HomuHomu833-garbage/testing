@@ -127,7 +127,8 @@ for T in "$@"; do
         --manifest "$(P "$FIX/AndroidManifest.xml")" "$(P "$w/values_strings.arsc.flat")"
       [ -s "$w/base.apk" ] && apk="$w/base.apk"
       # aapt2 before build-tools 30 has a bare "dump <apk>" with no subcommands
-      if [ -n "$apk" ] && "${R[@]}" "$bt/aapt2$x" dump --help 2>&1 | grep -q badging; then
+      h=$("${R[@]}" "$bt/aapt2$x" dump --help 2>&1)
+      if [ -n "$apk" ] && [[ $h == *badging* ]]; then
         expect "aapt2 dump badging" "package: name='t.sdk' versionCode='42'" "${R[@]}" "$bt/aapt2$x" dump badging "$(P "$apk")"
         expect "aapt2 dump resources" "string/app_name" "${R[@]}" "$bt/aapt2$x" dump resources "$(P "$apk")"
       elif [ -n "$apk" ]; then
