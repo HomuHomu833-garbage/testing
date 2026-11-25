@@ -1,0 +1,31 @@
+name: diag aidl arm64
+on: workflow_dispatch
+jobs:
+  d:
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        t: [aarch64-w64-mingw32, arm64ec-w64-mingw32]
+    steps:
+      - shell: pwsh
+        run: |
+          curl.exe -sL -o s.7z https://github.com/HomuHomu833/android-sdk-custom/releases/download/33.0.0/android-sdk-${{ matrix.t }}.7z
+          7z x -y s.7z | Out-Null
+          $a = (Get-ChildItem -Recurse -Filter aidl.exe | Select-Object -First 1).FullName
+          New-Item -ItemType Directory -Force aidl/t, gen, hdr, cpp | Out-Null
+          Set-Content aidl/t/IFoo.aidl "package t;`ninterface IFoo { int add(int a, int b); String name(); }"
+          Push-Location aidl
+          & $a -I. -o ..\gen t/IFoo.aidl; "java exit 0x{0:X8}" -f $LASTEXITCODE
+          & $a --lang=cpp -I. -h ..\hdr -o ..\cpp t/IFoo.aidl; "cpp exit 0x{0:X8}" -f $LASTEXITCODE
+          Pop-Location
+          $cdb = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue | Where-Object FullName -match 'arm64' | Select-Object -First 1
+          if (-not $cdb) { $cdb = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Debuggers' -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          "cdb: $($cdb.FullName)"
+          if ($cdb) {
+            Push-Location aidl
+            & $cdb.FullName -g -G -lines -c ".lastevent; r; kn 40; lm; q" $a --lang=cpp -I. -h ..\hdr2 -o ..\cpp2 t/IFoo.aidl
+            & $cdb.FullName -g -G -c ".lastevent; r; kn 40; q" $a -I. -o ..\gen2 t/IFoo.aidl
+            Pop-Location
+          }
+          exit 0
