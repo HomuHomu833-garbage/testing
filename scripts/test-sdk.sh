@@ -110,7 +110,8 @@ for T in "$@"; do
   # -- build-tools: an APK from scratch --------------------------------------------------
   if have "$bt/aidl"; then
     expect "aidl java" "" "${R[@]}" "$bt/aidl$x" -I"$(P "$FIX/aidl")" -o"$(P "$w/gen")" "$(P "$FIX/aidl/t/IFoo.aidl")"
-    if grep -q 'int add(int a, int b)' "$w/gen/t/IFoo.java" 2>/dev/null; then pass "aidl java output has add()"
+    # older aidl mirrors the input path under -o instead of the package
+    if grep -rq 'int add(int a, int b)' --include=IFoo.java "$w/gen" 2>/dev/null; then pass "aidl java output has add()"
     else bad "aidl java output" "$(ls -R "$w/gen" 2>&1)"; fi
     if "${R[@]}" "$bt/aidl$x" --help 2>&1 | grep -q -- '--lang'; then
       expect "aidl cpp" "" "${R[@]}" "$bt/aidl$x" --lang=cpp -I"$(P "$FIX/aidl")" -h "$(P "$w/hdr")" -o "$(P "$w/cpp")" "$(P "$FIX/aidl/t/IFoo.aidl")"
@@ -125,8 +126,13 @@ for T in "$@"; do
       expect "aapt2 link" "" "${R[@]}" "$bt/aapt2$x" link -o "$(P "$w/base.apk")" -I "$(P "$FIX/android.jar")" \
         --manifest "$(P "$FIX/AndroidManifest.xml")" "$(P "$w/values_strings.arsc.flat")"
       [ -s "$w/base.apk" ] && apk="$w/base.apk"
-      [ -n "$apk" ] && expect "aapt2 dump badging" "package: name='t.sdk' versionCode='42'" "${R[@]}" "$bt/aapt2$x" dump badging "$(P "$apk")"
-      [ -n "$apk" ] && expect "aapt2 dump resources" "string/app_name" "${R[@]}" "$bt/aapt2$x" dump resources "$(P "$apk")"
+      # aapt2 before build-tools 30 has a bare "dump <apk>" with no subcommands
+      if [ -n "$apk" ] && "${R[@]}" "$bt/aapt2$x" dump --help 2>&1 | grep -q badging; then
+        expect "aapt2 dump badging" "package: name='t.sdk' versionCode='42'" "${R[@]}" "$bt/aapt2$x" dump badging "$(P "$apk")"
+        expect "aapt2 dump resources" "string/app_name" "${R[@]}" "$bt/aapt2$x" dump resources "$(P "$apk")"
+      elif [ -n "$apk" ]; then
+        expect "aapt2 dump" "string/app_name" "${R[@]}" "$bt/aapt2$x" dump "$(P "$apk")"
+      fi
     else skip "aapt2 link: no android.jar"; fi
   fi
   if [ -n "$apk" ] && have "$bt/aapt"; then

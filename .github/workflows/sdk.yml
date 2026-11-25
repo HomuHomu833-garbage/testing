@@ -52,6 +52,11 @@ jobs:
           if [ -x /usr/bin/qemu-aarch64_be ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64_be ]; then
             printf '%s' ':qemu-aarch64_be:M::\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff:/usr/bin/qemu-aarch64_be:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
           fi
+          # arm64 hosts run 32-bit arm natively, so Ubuntu registers no qemu-arm; glibc
+          # builds then miss their sysroot. Route them through qemu like on x86.
+          if [ -x /usr/bin/qemu-arm ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-arm ]; then
+            printf '%s' ':qemu-arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-arm:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
+          fi
       - name: glibc sysroots from bootlin (arches Ubuntu has no cross libc for)
         run: |
           for p in aarch64_be-linux-gnu:aarch64be armeb-linux-gnueabihf:armebv7-eabihf riscv32-linux-gnu:riscv32-ilp32d sparc64-linux-gnu:sparc64; do
@@ -98,6 +103,11 @@ jobs:
           done
           if [ -x /usr/bin/qemu-aarch64_be ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64_be ]; then
             printf '%s' ':qemu-aarch64_be:M::\x7fELF\x02\x02\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xb7:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff:/usr/bin/qemu-aarch64_be:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
+          fi
+          # arm64 hosts run 32-bit arm natively, so Ubuntu registers no qemu-arm; glibc
+          # builds then miss their sysroot. Route them through qemu like on x86.
+          if [ -x /usr/bin/qemu-arm ] && [ ! -e /proc/sys/fs/binfmt_misc/qemu-arm ]; then
+            printf '%s' ':qemu-arm:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x28\x00:\xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:/usr/bin/qemu-arm:F' | sudo tee /proc/sys/fs/binfmt_misc/register >/dev/null
           fi
       - name: glibc sysroots from bootlin (arches Ubuntu has no cross libc for)
         run: |
@@ -188,7 +198,7 @@ jobs:
 
   bsd:
     needs: plan
-    runs-on: ${{ matrix.h.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
