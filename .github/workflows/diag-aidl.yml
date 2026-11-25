@@ -24,8 +24,7 @@ jobs:
           "cdb: $($cdb.FullName)"
           if ($cdb) {
             Push-Location aidl
-            & $cdb.FullName -g -G -lines -c ".lastevent; r; kn 40; lm; q" $a --lang=cpp -I. -h ..\hdr2 -o ..\cpp2 t/IFoo.aidl
-            & $cdb.FullName -g -G -c ".lastevent; r; kn 40; q" $a -I. -o ..\gen2 t/IFoo.aidl
+            & $cdb.FullName -G -c "sxe 20474343; sxe av; g; .echo STACK1; kn 60; g; .echo STACK2; .lastevent; kn 60; lm; q" $a -I. -o ..\gen2 t/IFoo.aidl 2>&1 | Select-String -NotMatch 'NatVis|Repository|Gallery|Nuget|Configuring'
             Pop-Location
           }
           exit 0
