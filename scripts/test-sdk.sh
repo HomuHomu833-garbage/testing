@@ -109,8 +109,11 @@ for T in "$@"; do
 
   # -- build-tools: an APK from scratch --------------------------------------------------
   if have "$bt/aidl"; then
-    expect "aidl java" "" "${R[@]}" "$bt/aidl$x" -I"$(P "$FIX/aidl")" -o"$(P "$w/gen")" "$(P "$FIX/aidl/t/IFoo.aidl")"
-    # older aidl mirrors the input path under -o instead of the package
+    # older aidl mirrors the input path under -o instead of the package, so a
+    # relative one keeps a Windows drive out of the output path
+    pushd "$FIX/aidl" >/dev/null
+    expect "aidl java" "" "${R[@]}" "$bt/aidl$x" -I. -o"$(P "$w/gen")" t/IFoo.aidl
+    popd >/dev/null
     if grep -rq 'int add(int a, int b)' --include=IFoo.java "$w/gen" 2>/dev/null; then pass "aidl java output has add()"
     else bad "aidl java output" "$(ls -R "$w/gen" 2>&1)"; fi
     if "${R[@]}" "$bt/aidl$x" --help 2>&1 | grep -q -- '--lang'; then
