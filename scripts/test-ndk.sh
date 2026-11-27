@@ -78,6 +78,9 @@ for T in "$@"; do
   if [ "$HOST_OS" = linux ] && [ "${T%%-*}" != "$(uname -m)" ] && readelf -lW "$probe" 2>/dev/null | grep -q 'interpreter'; then
     sr=${SYSROOT[$T]:-}; [ -z "$sr" ] && [ -e "${SR_DIR:-/nonexistent}/sr-$T" ] && sr=$SR_DIR/sr-$T
     case $T in *-linux-gnu*) if [ -n "$sr" ] && [ -d "$sr" ]; then export QEMU_LD_PREFIX=$sr
+        # children (clang -> ld.lld) lose QEMU_LD_PREFIX; bake the sysroot into binfmt
+        qa=${T%%-*}; case $qa in x86) qa=i386 ;; powerpc64le) qa=ppc64le ;; esac
+        [ "$qa" != i386 ] && "$(dirname "$0")/qemu-sysroot.sh" "$qa" "$sr"
       else skip "dynamic glibc build, no $T libc on this runner"; continue; fi ;; esac
   fi
   if [ "$HOST_OS" = darwin ] && [ "${T%%-*}" = arm64e ]; then "$pb/make" --version >/dev/null 2>&1
