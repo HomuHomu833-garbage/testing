@@ -74,7 +74,7 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", N: "${{ matrix.shard }}", WORK: "${{ runner.temp }}/w" }
         run: |
           ts=$(gh api --paginate "repos/HomuHomu833/android-ndk-custom/releases/$(gh api "repos/HomuHomu833/android-ndk-custom/releases/tags/$(grep -oE "^r[0-9]+" <<<"$V")" -q .id)/assets?per_page=100" -q '.[].name' | sed -nE "s/^android-ndk-$V-(.*-linux-.*)\\.tar\\.xz\$/\\1/p" | grep -vE '^(beta|rc)[0-9]' \
-               | grep -vE 'x32$|^(aarch64|arm|thumb)' | sort | awk -v n="$N" 'NR%4==n')
+               | grep -vE 'x32$|-android|^(aarch64|arm|thumb)' | sort | awk -v n="$N" 'NR%4==n')
           ./scripts/test-ndk.sh "$V" $ts
       - name: Report
         if: always()
@@ -125,7 +125,7 @@ jobs:
       - name: Test on arm64 (aarch64 native, 32-bit arm and big-endian under qemu)
         env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w", SR_DIR: "${{ runner.temp }}" }
         run: |
-          ts=$(gh api --paginate "repos/HomuHomu833/android-ndk-custom/releases/$(gh api "repos/HomuHomu833/android-ndk-custom/releases/tags/$(grep -oE "^r[0-9]+" <<<"$V")" -q .id)/assets?per_page=100" -q '.[].name' | sed -nE "s/^android-ndk-$V-((aarch64|arm|thumb)[^-]*-linux-.*)\\.tar\\.xz\$/\\1/p" | grep -vE '^(beta|rc)[0-9]' | sort)
+          ts=$(gh api --paginate "repos/HomuHomu833/android-ndk-custom/releases/$(gh api "repos/HomuHomu833/android-ndk-custom/releases/tags/$(grep -oE "^r[0-9]+" <<<"$V")" -q .id)/assets?per_page=100" -q '.[].name' | sed -nE "s/^android-ndk-$V-((aarch64|arm|thumb)[^-]*-linux-[^a].*)\\.tar\\.xz\$/\\1/p" | grep -vE '^(beta|rc)[0-9]' | sort)
           ./scripts/test-ndk.sh "$V" $ts
       - name: Report
         if: always()

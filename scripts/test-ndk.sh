@@ -13,11 +13,12 @@ mkdir -p "$WORK"; RESULTS="$WORK/results-ndk-$VER.txt"; : > "$RESULTS"
 CUR=""; nf=0
 log()  { echo "$1" | tee -a "$RESULTS"; }
 pass() { log "OK    [$CUR] $1"; }
-bad()  { log "FAIL  [$CUR] $1 :: $(tr '\n' ' ' <<<"${2:-}" | tr -s ' ' | cut -c1-600)"; nf=$((nf+1)); }
+bad()  { local m; m=$(tr '\n' ' ' <<<"${2:-}" | tr -s ' '); [ ${#m} -gt 900 ] && m="${m:0:300} ... ${m: -600}"
+  log "FAIL  [$CUR] $1 :: $m"; nf=$((nf+1)); }
 skip() { log "SKIP  [$CUR] $1"; }
 TO() { if [ "$(type -t "$1")" != function ] && command -v timeout >/dev/null; then timeout 900 "$@"; else "$@"; fi; }
 expect() { local l=$1 p=$2 out rc; shift 2; out=$(TO "$@" 2>&1); rc=$?
-  if [ $rc -eq 0 ] && grep -qE -- "$p" <<<"$out"; then pass "$l"; else bad "$l (rc=$rc, wanted /$p/)" "$out"; fi; }
+  if [ $rc -eq 0 ] && grep -qE -- "$p" <<<"$out"; then pass "$l"; else bad "$l (rc=$rc, wanted /$p/)" "$out"; return 1; fi; }
 P() { local p=$1
   if [ -n "$WINE" ]; then p="Z:${p//\//\\}"
   elif [ "$HOST_OS" = windows ] && command -v cygpath >/dev/null; then p=$(cygpath -w "$p"); fi
@@ -79,6 +80,8 @@ for T in "$@"; do
     case $T in *-linux-gnu*) if [ -n "$sr" ] && [ -d "$sr" ]; then export QEMU_LD_PREFIX=$sr
       else skip "dynamic glibc build, no $T libc on this runner"; continue; fi ;; esac
   fi
+  if [ "$HOST_OS" = darwin ] && [ "${T%%-*}" = arm64e ]; then "$pb/make" --version >/dev/null 2>&1
+    [ $? -eq 137 ] && { skip "this Mac does not run third-party arm64e binaries"; continue; }; fi
   w="$d/w"; mkdir -p "$w"
 
   # -- host tools --------------------------------------------------------------------------
@@ -95,18 +98,20 @@ for T in "$@"; do
     expect "ndk-which" "readelf" "$ndk/ndk-which" --abi arm64-v8a readelf
   fi
 
-  # -- binutils (r20-r23) ------------------------------------------------------------------
+  # -- binutils (r20-r23): every copy the NDK ships, each tool it has -----------------
   for g in aarch64-linux-android arm-linux-androideabi; do
-    b=$(find "$ndk/toolchains" -path "*/bin/$g-as$x" 2>/dev/null | head -1); [ -n "$b" ] || continue
-    b=${b%-as$x}
     case $g in aarch64*) s='mov x0, #42' m=AArch64 ;; *) s='mov r0, #42' m=ARM ;; esac
-    printf '.globl f\n.type f,%%function\nf:\n %s\n ret\n' "$s" > "$w/$g.s"; [ $g = arm-linux-androideabi ] && sed -i.b 's/ ret/ bx lr/' "$w/$g.s"
-    expect "$g-as" "" "${R[@]}" "$b-as$x" -o "$(P "$w/$g.o")" "$(P "$w/$g.s")"
-    expect "$g-ld" "" "${R[@]}" "$b-ld$x" -shared -o "$(P "$w/$g.so")" "$(P "$w/$g.o")"
-    expect "$g-readelf" "Machine: +$m" "${R[@]}" "$b-readelf$x" -h "$(P "$w/$g.so")"
-    expect "$g-nm" " T f$" "${R[@]}" "$b-nm$x" "$(P "$w/$g.so")"
-    expect "$g-objdump" "mov" "${R[@]}" "$b-objdump$x" -d "$(P "$w/$g.o")"
-    expect "$g-strip" "" "${R[@]}" "$b-strip$x" -o "$(P "$w/$g.stripped")" "$(P "$w/$g.so")"
+    printf '.globl f\n.type f,%%function\nf:\n %s\n' "$s" > "$w/$g.s"
+    find "$ndk/toolchains" -path "*/bin/$g-as$x" 2>/dev/null | sort | while IFS= read -r b; do
+      b=${b%-as$x}; l="${b#"$ndk/toolchains/"}"; l="${l%%/*}:$g"; o="$w/$l.o"; o=${o//:/_}
+      expect "$l-as" "" "${R[@]}" "$b-as$x" -o "$(P "$o")" "$(P "$w/$g.s")" || continue
+      [ "$(hexat "$o" 0 4)" = 7f454c46 ] || { bad "$l-as ELF output" "$(hexat "$o" 0 4)"; continue; }
+      [ -f "$b-readelf$x" ] && expect "$l-readelf" "Machine: +$m" "${R[@]}" "$b-readelf$x" -h "$(P "$o")"
+      [ -f "$b-nm$x" ] && expect "$l-nm" " T f$" "${R[@]}" "$b-nm$x" "$(P "$o")"
+      [ -f "$b-objdump$x" ] && expect "$l-objdump" "mov" "${R[@]}" "$b-objdump$x" -d "$(P "$o")"
+      [ -f "$b-ld$x" ] && expect "$l-ld" "" "${R[@]}" "$b-ld$x" -shared -o "$(P "$o.so")" "$(P "$o")"
+      [ -f "$b-strip$x" ] && expect "$l-strip" "" "${R[@]}" "$b-strip$x" -o "$(P "$o.s")" "$(P "$o")"
+    done
   done
 
   # -- ndk-build ---------------------------------------------------------------------------
