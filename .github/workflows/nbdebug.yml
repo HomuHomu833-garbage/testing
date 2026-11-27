@@ -36,8 +36,7 @@ jobs:
           n=$(dirname "$(find $d -maxdepth 2 -name source.properties)"); m=$(find $n/prebuilt -name make -path '*/bin/*' | head -1)
           file $m; uname -a
           printf 'a:\n\t@echo A\nb:\n\t@echo B\nall: a b\n' > Makefile
-          for o in "" -O -Otarget -Oline "-O -j2" -j2; do echo "== make $o"; $m $o all; echo rc=$?; done
-          echo "== ktrace -O"; ktrace -i -f $d/kt $m -O all >/dev/null 2>&1
-          n2=$(kdump -f $d/kt | grep -n 'PSIG' | head -1 | cut -d: -f1); [ -n "$n2" ] && kdump -f $d/kt | sed -n "$((n2-40)),$((n2+3))p"
-          echo "== gdb -O"
-          gdb -batch -ex run -ex bt -ex 'info registers' -ex 'x/8i $pc' --args $m -O all 2>&1 | tail -40
+          echo "== gdb -O -j2"
+          gdb -batch -ex 'set follow-fork-mode parent' -ex run -ex 'bt 30' -ex 'info registers' -ex 'x/8i $pc' --args $m -O -j2 all 2>&1 | tail -60
+          echo "== ktrace -O -j2"; ktrace -i -f $d/kt $m -O -j2 all >/dev/null 2>&1
+          kdump -f $d/kt | grep -B40 -m1 PSIG | tail -45
