@@ -1,11 +1,11 @@
-name: Debug x86 NetBSD cmake
+name: Debug x86 NetBSD make
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "cmake-custom release tag"
+        description: "NDK version"
         required: false
-        default: "4.1.2"
+        default: "r30"
         type: string
 
 permissions:
@@ -29,19 +29,15 @@ jobs:
         run: |
           set +e; export T=x86-bsd
           sh ./scripts/bsd-setup.sh >/dev/null 2>&1
+          sudo pkgin -y install gdb >/dev/null 2>&1
           export PATH="$HOME/gnubin:$PATH"
-          V='${{ inputs.version }}'; d=$HOME/nb; mkdir -p $d/p $d/b; cd $d
-          curl -fsSL -o c.tar.xz "https://github.com/HomuHomu833/cmake-custom/releases/download/$V/cmake-x86-netbsd-none.tar.xz"
-          tar -xJf c.tar.xz; c=$(find $d -name cmake -path '*/bin/*' | head -1); b=$(dirname $c)
-          file $c $b/ninja
-          printf 'cmake_minimum_required(VERSION 3.10)\nproject(t C)\n' > p/CMakeLists.txt
-          echo "== plain configure"; (cd b && $c ../p -G Ninja -DCMAKE_MAKE_PROGRAM=$b/ninja 2>&1 | tail -5)
-          echo "== ninja alone"; $b/ninja --version; echo rc=$?
-          echo "== ktrace"; rm -rf b/*; (cd b && ktrace -i -f $d/kt $c ../p -G Ninja -DCMAKE_MAKE_PROGRAM=$b/ninja >/dev/null 2>&1)
-          kdump -f $d/kt | grep -E 'PSIG|SIGSEGV|SIGBUS|SIGILL|SIGABRT|RET .* -1|CALL  (fork|vfork|posix_spawn|execve|__kevent|kqueue)' | tail -40
-          echo "-- last 60 events before the signal"
-          kdump -f $d/kt | grep -n 'PSIG' | head -3
-          n=$(kdump -f $d/kt | grep -n 'PSIG' | head -1 | cut -d: -f1); [ -n "$n" ] && kdump -f $d/kt | sed -n "$((n-60)),$((n+3))p"
-          echo "== gdb"; rm -rf b/*
-          (cd b && gdb -batch -ex 'set follow-fork-mode parent' -ex run -ex bt -ex 'info registers' -ex 'x/8i $pc' \
-             --args $c ../p -G Ninja -DCMAKE_MAKE_PROGRAM=$b/ninja 2>&1 | tail -40)
+          V='${{ inputs.version }}'; d=$HOME/nb; mkdir -p $d; cd $d
+          curl -fsSL "https://github.com/HomuHomu833/android-ndk-custom/releases/download/${V%%[a-z-]*}/android-ndk-$V-x86-netbsd-none.tar.xz" | tar -xJf -
+          n=$(dirname "$(find $d -maxdepth 2 -name source.properties)"); m=$(find $n/prebuilt -name make -path '*/bin/*' | head -1)
+          file $m; uname -a
+          printf 'a:\n\t@echo A\nb:\n\t@echo B\nall: a b\n' > Makefile
+          for o in "" -O -Otarget -Oline "-O -j2" -j2; do echo "== make $o"; $m $o all; echo rc=$?; done
+          echo "== ktrace -O"; ktrace -i -f $d/kt $m -O all >/dev/null 2>&1
+          n2=$(kdump -f $d/kt | grep -n 'PSIG' | head -1 | cut -d: -f1); [ -n "$n2" ] && kdump -f $d/kt | sed -n "$((n2-40)),$((n2+3))p"
+          echo "== gdb -O"
+          gdb -batch -ex run -ex bt -ex 'info registers' -ex 'x/8i $pc' --args $m -O all 2>&1 | tail -40
