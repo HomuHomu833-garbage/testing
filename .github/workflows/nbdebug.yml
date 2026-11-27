@@ -32,7 +32,7 @@ jobs:
           sudo pkgin -y install gdb >/dev/null 2>&1
           export PATH="$HOME/gnubin:$PATH"
           V='${{ inputs.version }}'; d=$HOME/nb; mkdir -p $d; cd $d
-          curl -fsSL "https://github.com/HomuHomu833/android-ndk-custom/releases/download/${V%%[a-z-]*}/android-ndk-$V-x86-netbsd-none.tar.xz" | tar -xJf -
+          curl -fsSL "https://github.com/HomuHomu833/android-ndk-custom/releases/download/$(echo $V | grep -oE "^r[0-9]+")/android-ndk-$V-x86-netbsd-none.tar.xz" | tar -xJf -
           n=$(dirname "$(find $d -maxdepth 2 -name source.properties)"); m=$(find $n/prebuilt -name make -path '*/bin/*' | head -1)
           file $m; uname -a
           printf 'a:\n\t@echo A\nb:\n\t@echo B\nall: a b\n' > Makefile
