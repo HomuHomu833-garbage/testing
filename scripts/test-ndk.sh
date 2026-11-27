@@ -122,7 +122,9 @@ for T in "$@"; do
   if [ -n "$WINE" ]; then nb=("$WINE" cmd /c "$(P "$ndk/ndk-build.cmd")")
   elif [ "$HOST_OS" = windows ]; then nb=(cmd //c "$(P "$ndk/ndk-build.cmd")")
   else nb=("$ndk/ndk-build"); fi
-  nbuild() { cd "$w/proj" && "${nb[@]}" -j4 NDK_PROJECT_PATH=. 2>&1; }
+  # wine's cmd keeps md's error through "|| rem", so parallel mkdirs race into failures
+  j=-j4; [ -n "$WINE" ] && j=-j1
+  nbuild() { cd "$w/proj" && "${nb[@]}" $j NDK_PROJECT_PATH=. 2>&1; }
   expect "ndk-build" "libhello.so" nbuild
   n=0
   for abi in "$w"/proj/obj/local/*/; do
