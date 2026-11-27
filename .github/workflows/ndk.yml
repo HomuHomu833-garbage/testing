@@ -41,6 +41,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install qemu and cross libcs
         run: |
+          # bionic builds run here too; their scripts want /system/bin/sh
+          sudo mkdir -p /system/bin && sudo ln -sf /bin/sh /system/bin/sh
           sudo apt-get update -q
           sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils
           for p in libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
@@ -93,6 +95,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install qemu and cross libcs
         run: |
+          # bionic builds run here too; their scripts want /system/bin/sh
+          sudo mkdir -p /system/bin && sudo ln -sf /bin/sh /system/bin/sh
           sudo apt-get update -q
           sudo apt-get install -yq qemu-user qemu-user-binfmt binutils xz-utils
           for p in libc6-arm64-cross libc6-armhf-cross libc6-armel-cross libc6-i386-cross libc6-riscv64-cross \
@@ -125,7 +129,7 @@ jobs:
       - name: Test on arm64 (aarch64 native, 32-bit arm and big-endian under qemu)
         env: { GH_TOKEN: "${{ github.token }}", V: "${{ matrix.version }}", WORK: "${{ runner.temp }}/w", SR_DIR: "${{ runner.temp }}" }
         run: |
-          ts=$(gh api --paginate "repos/HomuHomu833/android-ndk-custom/releases/$(gh api "repos/HomuHomu833/android-ndk-custom/releases/tags/$(grep -oE "^r[0-9]+" <<<"$V")" -q .id)/assets?per_page=100" -q '.[].name' | sed -nE "s/^android-ndk-$V-((aarch64|arm|thumb)[^-]*-linux-[^a].*)\\.tar\\.xz\$/\\1/p" | grep -vE '^(beta|rc)[0-9]' | sort)
+          ts=$(gh api --paginate "repos/HomuHomu833/android-ndk-custom/releases/$(gh api "repos/HomuHomu833/android-ndk-custom/releases/tags/$(grep -oE "^r[0-9]+" <<<"$V")" -q .id)/assets?per_page=100" -q '.[].name' | sed -nE "s/^android-ndk-$V-((aarch64|arm|thumb)[^-]*-linux-.*)\\.tar\\.xz\$/\\1/p" | grep -vE '^(beta|rc)[0-9]' | sort)
           ./scripts/test-ndk.sh "$V" $ts
       - name: Report
         if: always()
